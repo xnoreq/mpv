@@ -11,9 +11,7 @@
 # This configure script is *not* autoconf-based and has different semantics.
 # It attempts to autodetect all settings and options where possible. It is
 # possible to override autodetection with the --enable-option/--disable-option
-# command line parameters.  --enable-option forces the option on skipping
-# autodetection. Yes, this means that compilation may fail and yes, this is not
-# how autoconf-based configure scripts behave.
+# command line parameters.  --enable-option forces the option on.
 #
 # configure generates a series of configuration files:
 #  - config.h contains #defines that are used in the C code.
@@ -3313,15 +3311,6 @@ EOF
 cat <<EOF
 Check $TMPLOG if you wonder why an autodetection failed (make sure
 development headers/packages are installed).
-
-NOTE: The --enable-* parameters unconditionally force options on, completely
-skipping autodetection. This behavior is unlike what you may be used to from
-autoconf-based configure scripts that can decide to override you. This greater
-level of control comes at a price. You may have to provide the correct compiler
-and linker flags yourself.
-If you used one of these options and experience a compilation or
-linking failure, make sure you have passed the necessary compiler/linker flags
-to configure.
 
 EOF
 
