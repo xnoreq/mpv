@@ -326,9 +326,9 @@ Optional features:
   --disable-libass-osd   disable OSD rendering with libass [autodetect]
   --enable-rpath         enable runtime linker path for extra libs [disabled]
   --disable-libpostproc  disable postprocess filter (vf_pp) [autodetect]
-  --disable-libavdevice  enable libavdevice demuxers [autodetect]
-  --disable-libavfilter  enable libavfilter [autodetect]
-  --disable-vf-lavfi     enable vf_lavfi libavfilter bridge [audodetect]
+  --disable-libavdevice  enable _libavdevice demuxers [autodetect]
+  --disable-libavfilter  enable _libavfilter [autodetect]
+  --disable-vf-lavfi     enable _vf_lavfi _libavfilter bridge [audodetect]
 
 Codecs:
   --enable-mng              enable MNG input support [autodetect]
@@ -481,13 +481,13 @@ _gethostbyname2=auto
 _ftp=auto
 _vstream=auto
 _pthreads=auto
-_ass=auto
+_libass=auto
 _libass_osd=auto
 _rpath=no
-libpostproc=auto
-libavfilter=auto
-vf_lavfi=auto
-libavdevice=auto
+_libpostproc=auto
+_libavfilter=auto
+_vf_lavfi=auto
+_libavdevice=auto
 _stream_cache=yes
 _priority=no
 def_dos_paths="#define HAVE_DOS_PATHS 0"
@@ -496,6 +496,66 @@ def_priority="#undef CONFIG_PRIORITY"
 def_pthread_cache="#undef PTHREAD_CACHE"
 need_shmem=yes
 _build_man=auto
+
+_required_features=""
+do_enable()
+{
+    case "$1" in
+        *[!0-9a-z-]*)
+            echo "Unknown parameter: $ac_option" >&2
+            exit 1
+            ;;
+    esac
+    set -- "_`echo "${1#--*-}" | tr - _`" "$2"
+    case "$2" in
+        yes|no|auto|force)
+            ;;
+        *)
+            echo "Unknown parameter: $ac_option" >&2
+            exit 1
+            ;;
+    esac
+    eval ac_value=\$$1
+    case "$ac_value" in
+        yes|no|auto)
+            ;;
+        *)
+            echo "Unknown parameter: $ac_option" >&2
+            exit 1
+            ;;
+    esac
+    case "$2" in
+        force)
+            eval $1=yes
+            ;;
+        yes)
+            _required_features="$_required_features $1"
+            eval $1=auto
+            ;;
+        *)
+            eval $1=\$2
+            ;;
+    esac
+}
+check_required()
+{
+    for ac_key in $_required_features; do
+        eval ac_value=\$$ac_key
+        case "$ac_value" in
+            yes)
+                ;;
+            no|auto)
+                echo "$ac_key not detected, bailing out" >&2
+                exit 1
+                ;;
+            *)
+                echo "Assertion failed: \$$ac_key is not yes but $ac_value" >&2
+                exit 1
+                ;;
+        esac
+    done
+}
+
 for ac_option do
   case "$ac_option" in
   --help|-help|-h)
@@ -571,159 +631,34 @@ for ac_option do
   --disable-optimization)
     _opt=
     ;;
+
+  # these flags do not support "auto"
   --enable-gettext)                 _gettext=yes                ;;
   --disable-gettext)                _gettext=no                 ;;
   --enable-cross-compile)           _cross_compile=yes          ;;
   --disable-cross-compile)          _cross_compile=no           ;;
   --enable-encoding)    _encoding=yes   ;;
   --disable-encoding)   _encoding=no    ;;
-  --enable-wayland)     _wayland=yes    ;;
-  --disable-wayland)    _wayland=no     ;;
-  --enable-x11)         _x11=yes        ;;
-  --disable-x11)        _x11=no         ;;
-  --enable-xss)         _xss=yes        ;;
-  --disable-xss)        _xss=no         ;;
-  --enable-xv)          _xv=yes         ;;
-  --disable-xv)         _xv=no          ;;
-  --enable-vdpau)       _vdpau=yes      ;;
-  --disable-vdpau)      _vdpau=no       ;;
-  --enable-direct3d)    _direct3d=yes   ;;
-  --disable-direct3d)   _direct3d=no    ;;
-  --enable-sdl)         _sdl=yes       ;;
-  --disable-sdl)        _sdl=no        ;;
-  --enable-sdl2)        _sdl2=yes       ;;
-  --disable-sdl2)       _sdl2=no        ;;
-  --enable-dsound)      _dsound=yes     ;;
-  --disable-dsound)     _dsound=no      ;;
-  --enable-mng)         _mng=yes        ;;
-  --disable-mng)        _mng=no         ;;
-  --enable-jpeg)        _jpeg=yes       ;;
-  --disable-jpeg)       _jpeg=no        ;;
-  --enable-gl)          _gl=yes         ;;
-  --disable-gl)         _gl=no          ;;
-  --enable-caca)        _caca=yes       ;;
-  --disable-caca)       _caca=no        ;;
-  --enable-dvb)         _dvb=yes        ;;
-  --disable-dvb)        _dvb=no         ;;
-  --enable-iconv)       _iconv=yes      ;;
-  --disable-iconv)      _iconv=no       ;;
-  --enable-ossaudio)    _ossaudio=yes   ;;
-  --disable-ossaudio)   _ossaudio=no    ;;
-  --enable-rsound)      _rsound=yes     ;;
-  --disable-rsound)     _rsound=no      ;;
-  --enable-pulse)       _pulse=yes      ;;
-  --disable-pulse)      _pulse=no       ;;
-  --enable-portaudio)   _portaudio=yes  ;;
-  --disable-portaudio)  _portaudio=no   ;;
-  --enable-jack)        _jack=yes       ;;
-  --disable-jack)       _jack=no        ;;
-  --enable-openal)      _openal=auto    ;;
-  --disable-openal)     _openal=no      ;;
-  --enable-libcdio)     _libcdio=yes    ;;
-  --disable-libcdio)    _libcdio=no     ;;
-  --enable-mpg123)      _mpg123=yes     ;;
-  --disable-mpg123)     _mpg123=no      ;;
-  --enable-ladspa)      _ladspa=yes     ;;
-  --disable-ladspa)     _ladspa=no      ;;
-  --enable-libbs2b)     _libbs2b=yes    ;;
-  --disable-libbs2b)    _libbs2b=no     ;;
-  --enable-vcd)         _vcd=yes        ;;
-  --disable-vcd)        _vcd=no         ;;
-  --enable-bluray)      _bluray=yes     ;;
-  --disable-bluray)     _bluray=no      ;;
-  --enable-dvdread)     _dvdread=yes    ;;
-  --disable-dvdread)    _dvdread=no     ;;
-  --enable-lcms2)       _lcms2=yes      ;;
-  --disable-lcms2)      _lcms2=no       ;;
-  --enable-xinerama)    _xinerama=yes   ;;
-  --disable-xinerama)   _xinerama=no    ;;
-  --enable-vm)          _vm=yes         ;;
-  --disable-vm)         _vm=no          ;;
-  --enable-xf86keysym)  _xf86keysym=yes ;;
-  --disable-xf86keysym) _xf86keysym=no  ;;
-  --enable-alsa)        _alsa=yes       ;;
-  --disable-alsa)       _alsa=no        ;;
   --enable-tv)          _tv=yes         ;;
   --disable-tv)         _tv=no          ;;
-  --enable-tv-v4l2)     _tv_v4l2=yes    ;;
-  --disable-tv-v4l2)    _tv_v4l2=no     ;;
   --enable-radio)       _radio=yes      ;;
   --enable-radio-capture)       _radio_capture=yes      ;;
   --disable-radio-capture)      _radio_capture=no       ;;
   --disable-radio)      _radio=no       ;;
-  --enable-radio-v4l2)  _radio_v4l2=yes ;;
-  --disable-radio-v4l2) _radio_v4l2=no  ;;
-  --enable-pvr)         _pvr=yes        ;;
-  --disable-pvr)        _pvr=no         ;;
   --enable-networking)     networking=yes    ;;
   --disable-networking)    networking=no     ;;
-  --enable-winsock2_h)  _winsock2_h=yes ;;
-  --disable-winsock2_h) _winsock2_h=no  ;;
-  --enable-smb)         _smb=yes        ;;
-  --disable-smb)        _smb=no ;;
-  --enable-libquvi)     _libquvi=yes    ;;
-  --disable-libquvi)    _libquvi=no     ;;
-  --enable-joystick)    _joystick=yes   ;;
-  --disable-joystick)   _joystick=no    ;;
   --enable-libav)       ffmpeg=yes      ;;
   --disable-libavresample) _disable_avresample=yes ;;
   --enable-libavresample) _disable_avresample=no   ;;
-
-  --enable-lirc)        _lirc=yes       ;;
-  --disable-lirc)       _lirc=no        ;;
-  --enable-lircc)       _lircc=yes      ;;
-  --disable-lircc)      _lircc=no       ;;
-  --enable-termcap)     _termcap=yes    ;;
-  --disable-termcap)    _termcap=no     ;;
-  --enable-termios)     _termios=yes    ;;
-  --disable-termios)    _termios=no     ;;
-  --enable-shm)         _shm=yes        ;;
-  --disable-shm)        _shm=no         ;;
-  --enable-select)      _select=yes     ;;
-  --disable-select)     _select=no      ;;
-  --enable-cddb)        _cddb=yes       ;;
-  --disable-cddb)       _cddb=no        ;;
-  --enable-ftp)         _ftp=yes        ;;
-  --disable-ftp)        _ftp=no         ;;
-  --enable-vstream)     _vstream=yes    ;;
-  --disable-vstream)    _vstream=no     ;;
-  --enable-pthreads)    _pthreads=yes   ;;
-  --disable-pthreads)   _pthreads=no    ;;
-  --enable-libass)      _ass=yes        ;;
-  --disable-libass)     _ass=no         ;;
-  --enable-libass-osd)  _libass_osd=yes ;;
-  --disable-libass-osd) _libass_osd=no  ;;
   --enable-rpath)       _rpath=yes      ;;
   --disable-rpath)      _rpath=no       ;;
-  --enable-libpostproc) libpostproc=yes ;;
-  --disable-libpostproc) libpostproc=no ;;
-  --enable-libavdevice) libavdevice=auto ;;
-  --disable-libavdevice) libavdevice=no ;;
-  --enable-libavfilter) libavfilter=auto ;;
-  --disable-libavfilter) libavfilter=no ;;
-  --enable-vf-lavfi)    vf_lavfi=auto ;;
-  --disable-vf-lavfi)   vf_lavfi=no ;;
-
-  --enable-enca)        _enca=yes       ;;
-  --disable-enca)       _enca=no        ;;
-
-  --enable-inet6)       _inet6=yes      ;;
-  --disable-inet6)      _inet6=no       ;;
-
-  --enable-gethostbyname2)      _gethostbyname2=yes     ;;
-  --disable-gethostbyname2)     _gethostbyname2=no      ;;
-
-  --enable-coreaudio) _coreaudio=yes ;;
-  --disable-coreaudio) _coreaudio=no ;;
-  --enable-corevideo) _corevideo=yes ;;
-  --disable-corevideo) _corevideo=no ;;
-  --enable-cocoa) _cocoa=yes ;;
-  --disable-cocoa) _cocoa=no ;;
-  --enable-macosx-bundle) _macosx_bundle=yes ;;
-  --disable-macosx-bundle) _macosx_bundle=no ;;
-
   --enable-manpage) _build_man=yes ;;
   --disable-manpage) _build_man=no ;;
+
+  # generic enable/disable logic
+  --enable-*=*) do_enable "${ac_option%%=*}" "${ac_option#*=}" ;;
+  --enable-*) do_enable "$ac_option" yes ;;
+  --disable-*) do_enable "$ac_option" no ;;
 
   *)
     echo "Unknown parameter: $ac_option" >&2
@@ -2519,9 +2454,9 @@ fi
 
 
 echocheck "SSA/ASS support"
-if test "$_ass" = auto ; then
+if test "$_libass" = auto ; then
     if pkg_config_add libass ; then
-        _ass=yes
+        _libass=yes
         def_ass='#define CONFIG_ASS 1'
     else
         die "Unable to find development files for libass. Aborting. If you really mean to compile without libass support use --disable-libass."
@@ -2529,14 +2464,14 @@ if test "$_ass" = auto ; then
 else
     def_ass='#undef CONFIG_ASS'
 fi
-echores "$_ass"
+echores "$_libass"
 
 
 echocheck "libass OSD support"
 _dummy_osd=yes
 if test "$_libass_osd" = auto ; then
     _libass_osd=no
-    if test "$_ass" = yes ; then
+    if test "$_libass" = yes ; then
         _libass_osd=yes
         _dummy_osd=no
     fi
@@ -2705,8 +2640,8 @@ echores "$_avutil_has_refcounting"
 # libavfilter as it can be used by vf_lavfi is 3.45.101 in FFmpeg, and
 # 3.5.0 in Libav. Completely useless version numbers.
 echocheck "libavfilter"
-if test "$libavfilter" = auto ; then
-    libavfilter=no
+if test "$_libavfilter" = auto ; then
+    _libavfilter=no
 
     cat > $TMPC <<EOF
 #include <libavfilter/avfilter.h>
@@ -2718,67 +2653,67 @@ int main(void) {
 }
 EOF
     if cc_check `$_pkg_config libavfilter --cflags --libs` && pkg_config_add "libavfilter" ; then
-        libavfilter=yes
+        _libavfilter=yes
     else
         res_comment="not found or broken"
     fi
 fi
-if test "$libavfilter" = yes ; then
+if test "$_libavfilter" = yes ; then
     def_libavfilter='#define CONFIG_LIBAVFILTER 1'
 else
     def_libavfilter='#undef CONFIG_LIBAVFILTER'
 fi
-echores "$libavfilter"
+echores "$_libavfilter"
 
 
 echocheck "using libavfilter through vf_lavfi"
-if test "$vf_lavfi" = auto ; then
-    vf_lavfi=no
-    if test "$libavfilter" = yes ; then
+if test "$_vf_lavfi" = auto ; then
+    _vf_lavfi=no
+    if test "$_libavfilter" = yes ; then
         if test "$_avutil_has_refcounting" = no ; then
             res_comment="libavutil too old"
         else
-            vf_lavfi=yes
+            _vf_lavfi=yes
         fi
     fi
 fi
-if test "$vf_lavfi" = yes ; then
+if test "$_vf_lavfi" = yes ; then
     def_vf_lavfi='#define CONFIG_VF_LAVFI 1'
 else
     def_vf_lavfi='#undef CONFIG_VF_LAVFI'
 fi
-echores "$vf_lavfi"
+echores "$_vf_lavfi"
 
 
 echocheck "libavdevice >= 54.0.0"
-if test "$libavdevice" = auto ; then
-    libavdevice=no
+if test "$_libavdevice" = auto ; then
+    _libavdevice=no
     # Usually, libavdevice depends on libavfilter
-    if test "$libavfilter" = yes && pkg_config_add "libavdevice >= 54.0.0" ; then
-        libavdevice=yes
+    if test "$_libavfilter" = yes && pkg_config_add "libavdevice >= 54.0.0" ; then
+        _libavdevice=yes
     fi
 fi
-if test "$libavdevice" = yes ; then
+if test "$_libavdevice" = yes ; then
     def_libavdevice='#define CONFIG_LIBAVDEVICE 1'
 else
     def_libavdevice='#undef CONFIG_LIBAVDEVICE'
 fi
-echores "$libavdevice"
+echores "$_libavdevice"
 
 
 echocheck "libpostproc >= 52.0.0"
-if test "$libpostproc" = auto ; then
-    libpostproc=no
+if test "$_libpostproc" = auto ; then
+    _libpostproc=no
     if pkg_config_add "libpostproc >= 52.0.0" ; then
-        libpostproc=yes
+        _libpostproc=yes
     fi
 fi
-if test "$libpostproc" = yes ; then
+if test "$_libpostproc" = yes ; then
     def_libpostproc='#define CONFIG_LIBPOSTPROC 1'
 else
     def_libpostproc='#undef CONFIG_LIBPOSTPROC'
 fi
-echores "$libpostproc"
+echores "$_libpostproc"
 
 
 echocheck "TV interface"
@@ -2983,6 +2918,8 @@ fi
 echores "$_lircc"
 
 #############################################################################
+check_required
+#############################################################################
 
 if mingw32 ; then
   # add this last, so that --libs from pkg-config can't override it
@@ -3077,16 +3014,16 @@ JACK = $_jack
 JOYSTICK = $_joystick
 JPEG = $_jpeg
 LADSPA = $_ladspa
-LIBASS = $_ass
+LIBASS = $_libass
 LIBASS_OSD = $_libass_osd
 DUMMY_OSD = $_dummy_osd
 LIBBLURAY = $_bluray
 LIBBS2B = $_libbs2b
 LCMS2 = $_lcms2
-LIBPOSTPROC = $libpostproc
-LIBAVDEVICE = $libavdevice
-LIBAVFILTER = $libavfilter
-VF_LAVFI = $vf_lavfi
+LIBPOSTPROC = $_libpostproc
+LIBAVDEVICE = $_libavdevice
+LIBAVFILTER = $_libavfilter
+VF_LAVFI = $_vf_lavfi
 LIBSMBCLIENT = $_smb
 LIBQUVI = $_libquvi
 LIBTHEORA = $_theora
