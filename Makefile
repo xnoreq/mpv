@@ -85,6 +85,7 @@ SOURCES-$(SDL)                  += audio/out/ao_sdl.c
 SOURCES-$(SDL2)                 += video/out/vo_sdl.c
 SOURCES-$(COREAUDIO)            += audio/out/ao_coreaudio.c
 SOURCES-$(COREVIDEO)            += video/out/vo_corevideo.m
+SOURCES-$(SHAREDBUFFER)         += video/out/vo_sharedbuffer.m
 SOURCES-$(DIRECT3D)             += video/out/vo_direct3d.c \
                                    video/out/w32_common.c
 SOURCES-$(DSOUND)               += audio/out/ao_dsound.c
