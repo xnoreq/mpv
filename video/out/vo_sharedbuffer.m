@@ -32,6 +32,7 @@
 
 #include "video/vfcap.h"
 #include "video/mp_image.h"
+#include "video/memcpy_pic.h"
 
 #include "sub/sub.h"
 
@@ -67,8 +68,9 @@ static void flip_page(struct vo *vo)
 static void draw_image(struct vo *vo, mp_image_t *mpi)
 {
     struct priv *p = vo->priv;
-    size_t stride = (p->image_width) * (p->image_bytespp);
-    memcpy(p->image_data, mpi->planes[0], stride * p->image_height);
+    memcpy_pic(p->image_data, mpi->planes[0],
+               (p->image_width) * (p->image_bytespp), p->image_height,
+               (p->image_width) * (p->image_bytespp), mpi->stride[0]);
 }
 
 static void free_buffers(struct priv *p)
