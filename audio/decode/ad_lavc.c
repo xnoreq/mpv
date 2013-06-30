@@ -282,6 +282,10 @@ static int init(sh_audio_t *sh_audio, const char *decoder)
     if (sh_audio->gsh->lav_headers)
         mp_copy_lav_codec_headers(lavc_context, sh_audio->gsh->lav_headers);
 
+    // Sets avctx->pkt_timebase on FFmpeg, does nothing on Libav
+    av_opt_set_q(lavc_context, "pkt_timebase", *sh_audio->gsh->time_base,
+                 AV_OPT_SEARCH_CHILDREN);
+
     /* open it */
     if (avcodec_open2(lavc_context, lavc_codec, NULL) < 0) {
         mp_tmsg(MSGT_DECAUDIO, MSGL_ERR, "Could not open codec.\n");
@@ -373,6 +377,7 @@ static av_always_inline void deplanarize(struct sh_audio *sh)
 
 static int decode_new_packet(struct sh_audio *sh)
 {
+    struct MPOpts *opts = sh->opts;
     struct priv *priv = sh->context;
     AVCodecContext *avctx = priv->avctx;
     double pts = MP_NOPTS_VALUE;
@@ -424,6 +429,12 @@ static int decode_new_packet(struct sh_audio *sh)
         priv->previous_data_left = insize - ret;
     if (!got_frame)
         return 0;
+    if (opts->user_pts_assoc_mode >= 3) {
+        pts = mp_pts_from_av(priv->avframe->best_effort_timestamp,
+                             sh->gsh->time_base);
+        if (pts != MP_NOPTS_VALUE)
+            sh->pts = pts;
+    }
     uint64_t unitsize = (uint64_t)av_get_bytes_per_sample(avctx->sample_fmt) *
                         avctx->channels;
     if (unitsize > 100000)
