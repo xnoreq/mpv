@@ -303,7 +303,7 @@ static int init(sh_audio_t *sh_audio, const char *decoder)
             sh_audio->a_buffer_len = x;
             break;
         }
-        if (++tries >= 5) {
+        if (++tries >= 5 * FFMAX(1, lavc_context->thread_count)) {
             mp_msg(MSGT_DECAUDIO, MSGL_ERR,
                    "ad_lavc: initial decode failed\n");
             uninit(sh_audio);
