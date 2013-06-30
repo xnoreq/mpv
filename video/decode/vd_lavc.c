@@ -360,6 +360,10 @@ static void init_avctx(sh_video_t *sh, const char *decoder, struct hwdec *hwdec)
     if (sh->gsh->lav_headers)
         mp_copy_lav_codec_headers(avctx, sh->gsh->lav_headers);
 
+    // Sets avctx->pkt_timebase on FFmpeg, does nothing on Libav
+    av_opt_set_q(avctx, "pkt_timebase", *sh->gsh->time_base,
+                 AV_OPT_SEARCH_CHILDREN);
+
     /* open it */
     if (avcodec_open2(avctx, lavc_codec, NULL) < 0) {
         mp_tmsg(MSGT_DECVIDEO, MSGL_ERR, "Could not open codec.\n");
