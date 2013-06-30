@@ -39,6 +39,7 @@
 #include "core/m_option.h"
 #include "core/m_struct.h"
 #include "core/av_opts.h"
+#include "core/av_common.h"
 
 #include "video/img_format.h"
 #include "video/mp_image.h"
@@ -250,10 +251,8 @@ static int query_format(struct vf_instance *vf, unsigned int fmt)
 static AVFrame *mp_to_av(struct vf_instance *vf, struct mp_image *img)
 {
     struct vf_priv_s *p = vf->priv;
-    uint64_t pts = img->pts == MP_NOPTS_VALUE ?
-                   AV_NOPTS_VALUE : img->pts * av_q2d(av_inv_q(p->timebase_in));
     AVFrame *frame = mp_image_to_av_frame_and_unref(img);
-    frame->pts = pts;
+    frame->pts = mp_pts_to_av(img->pts, &p->timebase_in);
     frame->sample_aspect_ratio = p->par_in;
     return frame;
 }
@@ -262,8 +261,7 @@ static struct mp_image *av_to_mp(struct vf_instance *vf, AVFrame *av_frame)
 {
     struct vf_priv_s *p = vf->priv;
     struct mp_image *img = mp_image_from_av_frame(av_frame);
-    img->pts = av_frame->pts == AV_NOPTS_VALUE ?
-               MP_NOPTS_VALUE : av_frame->pts * av_q2d(p->timebase_out);
+    img->pts = mp_pts_from_av(av_frame->pts, &p->timebase_out);
     av_frame_free(&av_frame);
     return img;
 }

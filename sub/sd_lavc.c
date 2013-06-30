@@ -134,14 +134,10 @@ static void decode(struct sd *sd, struct demux_packet *packet)
     double duration = packet->duration;
     AVSubtitle sub;
     AVPacket pkt;
+    AVRational timebase = {1, 1000};
 
     clear(priv);
-    av_init_packet(&pkt);
-    pkt.data = packet->buffer;
-    pkt.size = packet->len;
-    pkt.pts = pts * 1000;
-    if (duration >= 0)
-        pkt.convergence_duration = duration * 1000;
+    mp_set_av_packet(&pkt, packet, &timebase);
     int got_sub;
     int res = avcodec_decode_subtitle2(ctx, &sub, &got_sub, &pkt);
     if (res < 0 || !got_sub)

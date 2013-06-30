@@ -18,8 +18,10 @@
 #include <assert.h>
 
 #include <libavutil/common.h>
+#include <libavutil/rational.h>
 #include <libavcodec/avcodec.h>
 
+#include "core/mp_common.h"
 #include "core/mp_talloc.h"
 #include "demux/demux_packet.h"
 #include "av_common.h"
@@ -60,10 +62,24 @@ void mp_copy_lav_codec_headers(AVCodecContext *avctx, AVCodecContext *st)
     avctx->bits_per_coded_sample    = st->bits_per_coded_sample;
 }
 
+double mp_pts_from_av(int64_t av_pts, const struct AVRational *time_base)
+{
+    return av_pts == AV_NOPTS_VALUE ? MP_NOPTS_VALUE
+                                    : av_pts * av_q2d(*time_base);
+}
+
+int64_t mp_pts_to_av(double mp_pts, const struct AVRational *time_base)
+{
+    return mp_pts == MP_NOPTS_VALUE ? AV_NOPTS_VALUE
+                                    : mp_pts * av_q2d(av_inv_q(*time_base));
+}
+
 // Set dst from mpkt. Note that dst is not refcountable.
 // mpkt can be NULL to generate empty packets (used to flush delayed data).
-// Does not set pts or duration fields.
-void mp_set_av_packet(AVPacket *dst, struct demux_packet *mpkt)
+// time_base specifies the AVPacket timebase.
+// If time_base is NULL, pts/dts/duration are not set.
+void mp_set_av_packet(AVPacket *dst, struct demux_packet *mpkt,
+                      const struct AVRational *time_base)
 {
     av_init_packet(dst);
     dst->data = mpkt ? mpkt->buffer : NULL;
@@ -75,6 +91,12 @@ void mp_set_av_packet(AVPacket *dst, struct demux_packet *mpkt)
     if (mpkt && mpkt->avpacket) {
         dst->side_data = mpkt->avpacket->side_data;
         dst->side_data_elems = mpkt->avpacket->side_data_elems;
+    }
+    if (mpkt && time_base) {
+        dst->pts = mp_pts_to_av(mpkt->pts, time_base);
+        dst->dts = mp_pts_to_av(mpkt->dts, time_base);
+        if (mpkt->duration >= 0)
+            dst->duration = mp_pts_to_av(mpkt->duration, time_base);
     }
 }
 

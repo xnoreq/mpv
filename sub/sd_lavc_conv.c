@@ -109,14 +109,11 @@ static void decode(struct sd *sd, struct demux_packet *packet)
 {
     struct sd_lavc_priv *priv = sd->priv;
     AVCodecContext *avctx = priv->avctx;
-    double ts = av_q2d(av_inv_q(avctx->time_base));
     AVSubtitle sub = {0};
     AVPacket pkt;
     int ret, got_sub;
 
-    mp_set_av_packet(&pkt, packet);
-    pkt.pts = packet->pts == MP_NOPTS_VALUE ? AV_NOPTS_VALUE : packet->pts * ts;
-    pkt.duration = packet->duration * ts;
+    mp_set_av_packet(&pkt, packet, &avctx->time_base);
 
     ret = avcodec_decode_subtitle2(avctx, &sub, &got_sub, &pkt);
     if (ret < 0) {

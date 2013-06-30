@@ -402,7 +402,7 @@ static int decode_new_packet(struct sh_audio *sh)
     }
 
     AVPacket pkt;
-    mp_set_av_packet(&pkt, mpkt);
+    mp_set_av_packet(&pkt, mpkt, sh->gsh->time_base);
     pkt.data = start;
     pkt.size = insize;
 

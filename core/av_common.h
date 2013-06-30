@@ -18,16 +18,22 @@
 #ifndef MP_AVCOMMON_H
 #define MP_AVCOMMON_H
 
+#include <inttypes.h>
+
 #include <libavutil/avutil.h>
 #include <libavcodec/avcodec.h>
 
 struct mp_decoder_list;
 struct demux_packet;
+struct AVRational;
 
 void mp_copy_lav_codec_headers(AVCodecContext *avctx, AVCodecContext *st);
-void mp_set_av_packet(AVPacket *dst, struct demux_packet *mpkt);
+void mp_set_av_packet(AVPacket *dst, struct demux_packet *mpkt,
+                      const struct AVRational *time_base);
 void mp_add_lavc_decoders(struct mp_decoder_list *list, enum AVMediaType type);
 int mp_codec_to_av_codec_id(const char *codec);
 const char *mp_codec_from_av_codec_id(int codec_id);
+double mp_pts_from_av(int64_t av_pts, const struct AVRational *time_base);
+int64_t mp_pts_to_av(double mp_pts, const struct AVRational *time_base);
 
 #endif

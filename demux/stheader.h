@@ -61,6 +61,9 @@ struct sh_stream {
     // Other demuxers use sh_audio->wf and sh_video->bih instead.
     struct AVCodecContext *lav_headers;
 
+    // Optional timebase
+    const struct AVRational *time_base;
+
     char *title;
     char *lang;                 // language code
     bool default_track;         // container default track flag

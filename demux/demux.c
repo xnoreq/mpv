@@ -40,11 +40,15 @@
 
 #include "audio/format.h"
 
+#include <libavutil/rational.h>
 #include <libavcodec/avcodec.h>
 
 #if MP_INPUT_BUFFER_PADDING_SIZE < FF_INPUT_BUFFER_PADDING_SIZE
 #error MP_INPUT_BUFFER_PADDING_SIZE is too small!
 #endif
+
+#define MP_DEF_AVPACKET_TIMEBASE (1LL << 30)
+static const AVRational def_avpacket_timebase = {1, MP_DEF_AVPACKET_TIMEBASE};
 
 static void clear_parser(sh_audio_t *sh);
 
@@ -128,6 +132,7 @@ static struct demux_packet *create_packet(size_t len)
     *dp = (struct demux_packet) {
         .len = len,
         .pts = MP_NOPTS_VALUE,
+        .dts = MP_NOPTS_VALUE,
         .duration = -1,
         .stream_pts = MP_NOPTS_VALUE,
     };
@@ -305,6 +310,7 @@ static struct sh_stream *new_sh_stream_id(demuxer_t *demuxer,
         .demuxer_id = demuxer_id, // may be overwritten by demuxer
         .stream_index = stream_index,
         .opts = demuxer->opts,
+        .time_base = &def_avpacket_timebase,
     });
     MP_TARRAY_APPEND(demuxer, demuxer->streams, demuxer->num_streams, sh);
     switch (sh->type) {

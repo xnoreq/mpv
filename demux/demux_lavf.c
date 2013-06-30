@@ -451,6 +451,7 @@ static void handle_stream(demuxer_t *demuxer, int i)
     if (sh) {
         sh->codec = mp_codec_from_av_codec_id(codec->codec_id);
         sh->lav_headers = codec;
+        sh->time_base = &st->time_base;
 
         if (st->disposition & AV_DISPOSITION_DEFAULT)
             sh->default_track = 1;
@@ -688,6 +689,8 @@ static int demux_lavf_fill_buffer(demuxer_t *demux, demux_stream_t *dsds)
         if (pkt->convergence_duration > 0)
             dp->duration = pkt->convergence_duration * av_q2d(st->time_base);
     }
+    if (pkt->dts != AV_NOPTS_VALUE)
+        dp->dts = pkt->dts * av_q2d(st->time_base);
     dp->pos = demux->filepos;
     dp->keyframe = pkt->flags & AV_PKT_FLAG_KEY;
     // Use only one stream for stream_pts, otherwise PTS might be jumpy.

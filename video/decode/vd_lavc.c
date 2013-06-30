@@ -680,7 +680,7 @@ static int decode(struct sh_video *sh, struct demux_packet *packet,
     else
         avctx->skip_frame = ctx->skip_frame;
 
-    mp_set_av_packet(&pkt, packet);
+    mp_set_av_packet(&pkt, packet, sh->gsh->time_base);
 
     // The avcodec opaque field stupidly supports only int64_t type
     union pts { int64_t i; double d; };
