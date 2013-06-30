@@ -1490,16 +1490,18 @@
     Use the given profile(s), ``--profile=help`` displays a list of the
     defined profiles.
 
---pts-association-mode=<auto|decode|sort>
+--pts-association-mode=<auto|decode|sort|lavc>
     Select the method used to determine which container packet timestamp
     corresponds to a particular output frame from the video decoder. Normally
     you shouldn't need to change this option.
 
-    :auto:    Try to pick a working mode from the ones below automatically
-              (default)
+    :auto:    Try to pick a working mode from the ones below automatically.
     :decoder: Use decoder reordering functionality.
     :sort:    Maintain a buffer of unused pts values and use the lowest value
               for the frame.
+    :lavc:    Let libavcodec determine the frame pts values (default).
+    :lavc_pts: Use libavcodec reordered pts.
+    :lavc_dts: Use libavcodec dts.
 
 --pvr=<option1:option2:...>
     This option tunes various encoding properties of the PVR capture module.

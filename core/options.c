@@ -660,7 +660,8 @@ const m_option_t mp_opts[] = {
     // a-v sync stuff:
     OPT_FLAG("correct-pts", user_correct_pts, 0),
     OPT_CHOICE("pts-association-mode", user_pts_assoc_mode, 0,
-               ({"auto", 0}, {"decoder", 1}, {"sort", 2})),
+               ({"auto", 0}, {"decoder", 1}, {"sort", 2},
+                {"lavc", 3}, {"lavc_pts", 4}, {"lavc_dts", 5})),
     OPT_FLAG("initial-audio-sync", initial_audio_sync, 0),
     OPT_CHOICE("hr-seek", hr_seek, 0,
                ({"no", -1}, {"absolute", 0}, {"always", 1}, {"yes", 1})),
@@ -729,6 +730,7 @@ const struct MPOpts mp_default_opts = {
     .audio_driver_list = NULL,
     .audio_decoders = "-spdif:*", // never select spdif by default
     .video_decoders = NULL,
+    .user_pts_assoc_mode = 3,
     .fixed_vo = 1,
     .softvol = SOFTVOL_AUTO,
     .softvol_max = 200,

@@ -272,8 +272,11 @@ void *decode_video(sh_video_t *sh_video, struct demux_packet *packet,
 {
     mp_image_t *mpi = NULL;
     struct MPOpts *opts = sh_video->opts;
+    // If lavc mode is forced, disable the (in this case) inactive code, which
+    // would only print useless and confusing warnings.
+    bool determine_pts = opts->user_pts_assoc_mode < 3;
 
-    if (opts->correct_pts && pts != MP_NOPTS_VALUE) {
+    if (determine_pts && opts->correct_pts && pts != MP_NOPTS_VALUE) {
         int delay = get_current_video_decoder_lag(sh_video);
         if (delay >= 0) {
             if (delay > sh_video->num_buffered_pts)
@@ -317,6 +320,9 @@ void *decode_video(sh_video_t *sh_video, struct demux_packet *packet,
     else if (opts->field_dominance == 1)
         mpi->fields &= ~MP_IMGFIELD_TOP_FIRST;
 
+    if (!determine_pts)
+        goto done;
+
     double prevpts = sh_video->codec_reordered_pts;
     sh_video->prev_codec_reordered_pts = prevpts;
     sh_video->codec_reordered_pts = pts;
@@ -339,5 +345,7 @@ void *decode_video(sh_video_t *sh_video, struct demux_packet *packet,
     if (prevpts != MP_NOPTS_VALUE && pts <= prevpts
         || pts == MP_NOPTS_VALUE)
         sh_video->num_sorted_pts_problems++;
+
+done:
     return mpi;
 }

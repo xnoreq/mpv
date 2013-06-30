@@ -451,7 +451,7 @@ static void handle_stream(demuxer_t *demuxer, int i)
     if (sh) {
         sh->codec = mp_codec_from_av_codec_id(codec->codec_id);
         sh->lav_headers = codec;
-        sh->time_base = &st->time_base;
+        //sh->time_base = &st->time_base;
 
         if (st->disposition & AV_DISPOSITION_DEFAULT)
             sh->default_track = 1;
@@ -508,7 +508,7 @@ static demuxer_t *demux_open_lavf(demuxer_t *demuxer)
         priv->use_dts = true;
         demuxer->timestamp_type = TIMESTAMP_TYPE_SORT;
     } else {
-        if (opts->user_correct_pts != 0)
+        if (opts->user_correct_pts != 0 && opts->user_pts_assoc_mode < 3)
             avfc->flags |= AVFMT_FLAG_GENPTS;
     }
     if (index_mode == 0)

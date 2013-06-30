@@ -95,6 +95,8 @@ typedef struct mp_image {
 
     /* only inside filter chain */
     double pts;
+    /* only used with decoder interface */
+    double pkt_pts, pkt_dts;
     /* memory management */
     struct m_refcount *refcount;
     /* for private use */

@@ -2492,7 +2492,9 @@ static void filter_video(struct MPContext *mpctx, struct mp_image *frame)
 {
     struct sh_video *sh_video = mpctx->sh_video;
 
-    frame->pts = sh_video->pts;
+    if (frame->pts == MP_NOPTS_VALUE)
+        mp_msg(MSGT_CPLAYER, MSGL_ERR, "Video pts before filters missing!\n");
+
     vf_filter_frame(sh_video->vfilter, frame);
     filter_output_queued_frame(mpctx);
 }
@@ -2529,9 +2531,11 @@ static double update_video_nocorrect_pts(struct MPContext *mpctx)
             pkt = *sh_video->ds->current;
         pkt.buffer = packet;
         pkt.len = in_size;
-        void *decoded_frame = decode_video(sh_video, &pkt, framedrop_type,
-                                           sh_video->pts);
+        struct mp_image *decoded_frame = decode_video(sh_video, &pkt,
+                                                      framedrop_type,
+                                                      sh_video->pts);
         if (decoded_frame) {
+            decoded_frame->pts = sh_video->pts;
             filter_video(mpctx, decoded_frame);
         }
         break;
@@ -2539,10 +2543,11 @@ static double update_video_nocorrect_pts(struct MPContext *mpctx)
     return frame_time;
 }
 
-static void determine_frame_pts(struct MPContext *mpctx)
+static void determine_frame_pts(struct MPContext *mpctx, struct mp_image *frame)
 {
     struct sh_video *sh_video = mpctx->sh_video;
     struct MPOpts *opts = &mpctx->opts;
+    assert(frame);
 
     if (opts->user_pts_assoc_mode)
         sh_video->pts_assoc_mode = opts->user_pts_assoc_mode;
@@ -2566,8 +2571,15 @@ static void determine_frame_pts(struct MPContext *mpctx)
                    "%d.\n", sh_video->pts_assoc_mode);
         }
     }
-    sh_video->pts = sh_video->pts_assoc_mode == 1 ?
-                    sh_video->codec_reordered_pts : sh_video->sorted_pts;
+    switch (sh_video->pts_assoc_mode) {
+    case 1: sh_video->pts = sh_video->codec_reordered_pts; break;
+    case 2: sh_video->pts = sh_video->sorted_pts; break;
+    case 3: sh_video->pts = frame->pts; break;
+    case 4: sh_video->pts = frame->pkt_pts; break;
+    case 5: sh_video->pts = frame->pkt_dts; break;
+    default: assert(0);
+    }
+    frame->pts = sh_video->pts;
 }
 
 static double update_video(struct MPContext *mpctx, double endpts)
@@ -2607,7 +2619,7 @@ static double update_video(struct MPContext *mpctx, double endpts)
         struct mp_image *decoded_frame =
             decode_video(sh_video, pkt, framedrop_type, pts);
         if (decoded_frame) {
-            determine_frame_pts(mpctx);
+            determine_frame_pts(mpctx, decoded_frame);
             filter_video(mpctx, decoded_frame);
         } else if (!pkt) {
             if (vo_get_buffered_frame(video_out, true) < 0)

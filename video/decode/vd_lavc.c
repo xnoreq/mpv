@@ -698,8 +698,14 @@ static int decode(struct sh_video *sh, struct demux_packet *packet,
     if (init_vo(sh, pic) < 0)
         return -1;
 
+    AVFrame oldpic = *pic; // *pic will be overwritten
+
     struct mp_image *mpi = image_from_decoder(sh);
     assert(mpi->planes[0]);
+
+    mpi->pts = mp_pts_from_av(oldpic.best_effort_timestamp, sh->gsh->time_base);
+    mpi->pkt_pts = mp_pts_from_av(oldpic.pkt_pts, sh->gsh->time_base);
+    mpi->pkt_dts = mp_pts_from_av(oldpic.pkt_dts, sh->gsh->time_base);
 
     mpi->colorspace = ctx->image_params.colorspace;
     mpi->levels = ctx->image_params.colorlevels;
