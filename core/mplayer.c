@@ -2579,6 +2579,8 @@ static void determine_frame_pts(struct MPContext *mpctx, struct mp_image *frame)
     case 5: sh_video->pts = frame->pkt_dts; break;
     default: assert(0);
     }
+    if (sh_video->pts != MP_NOPTS_VALUE)
+        sh_video->pts += mpctx->video_offset;
     frame->pts = sh_video->pts;
 }
 
@@ -2610,10 +2612,10 @@ static double update_video(struct MPContext *mpctx, double endpts)
         }
         if (pkt)
             pts = pkt->pts;
-        if (pts != MP_NOPTS_VALUE)
-            pts += mpctx->video_offset;
-        if (pts >= mpctx->hrseek_pts - .005)
-            mpctx->hrseek_framedrop = false;
+        if (pts != MP_NOPTS_VALUE && mpctx->hrseek_pts != MP_NOPTS_VALUE) {
+            if (pts + mpctx->video_offset >= mpctx->hrseek_pts - .005)
+                mpctx->hrseek_framedrop = false;
+        }
         int framedrop_type = mpctx->hrseek_active && mpctx->hrseek_framedrop ?
                              1 : check_framedrop(mpctx, sh_video->frametime);
         struct mp_image *decoded_frame =
