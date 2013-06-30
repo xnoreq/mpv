@@ -392,7 +392,8 @@ static int decode_new_packet(struct sh_audio *sh)
         insize = 0;
         ds_parse(sh->ds, &start, &insize, pts, 0);
         if (insize <= 0)
-            return -1;  // error or EOF
+            insize = 0;;  // error or EOF
+        // Go on and flush frames still left in the audio decoder
     } else {
         assert(mpkt->len >= priv->previous_data_left);
         if (!priv->previous_data_left) {
@@ -465,6 +466,8 @@ static int decode_audio(sh_audio_t *sh_audio, unsigned char *buf, int minlen,
     while (len < minlen) {
         if (!priv->output_left) {
             if (decode_new_packet(sh_audio) < 0)
+                break;
+            if (!priv->output_left)
                 break;
             continue;
         }
