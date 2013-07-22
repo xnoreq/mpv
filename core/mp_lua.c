@@ -5,10 +5,9 @@
 #include <lualib.h>
 #include <lauxlib.h>
 
-#include <libavutil/avutil.h>
-
 #include "talloc.h"
 
+#include "mp_common.h"
 #include "mp_lua.h"
 #include "mp_core.h"
 #include "mp_msg.h"
@@ -269,7 +268,7 @@ static int get_screen_size(lua_State *L)
 {
     struct MPContext *mpctx = get_mpctx(L);
     struct osd_object *obj = mpctx->osd->objs[OSDTYPE_EXTERNAL];
-    double aspect = 1.0 * obj->vo_res.w / FFMAX(obj->vo_res.h, 1) /
+    double aspect = 1.0 * obj->vo_res.w / MPMAX(obj->vo_res.h, 1) /
                     obj->vo_res.display_par;
     lua_pushnumber(L, obj->vo_res.w);
     lua_pushnumber(L, obj->vo_res.h);
