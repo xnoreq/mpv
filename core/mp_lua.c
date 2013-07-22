@@ -347,6 +347,10 @@ static int get_track_list(lua_State *L)
             lua_pushstring(L, track->lang);
             lua_setfield(L, -2, "language");
         }
+        if (track->title) {
+            lua_pushstring(L, track->title);
+            lua_setfield(L, -2, "title");
+        }
         lua_pushboolean(L, track->is_external);
         lua_setfield(L, -2, "external");
         if (track->external_filename) {
