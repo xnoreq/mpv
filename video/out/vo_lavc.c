@@ -28,7 +28,6 @@
 #include "video/fmt-conversion.h"
 #include "video/mp_image.h"
 #include "video/vfcap.h"
-#include "core/subopt-helper.h"
 #include "talloc.h"
 #include "vo.h"
 
@@ -61,7 +60,7 @@ struct priv {
     struct mp_csp_details colorspace;
 };
 
-static int preinit(struct vo *vo, const char *arg)
+static int preinit(struct vo *vo)
 {
     struct priv *vc;
     if (!encode_lavc_available(vo->encode_lavc_ctx)) {

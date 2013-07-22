@@ -73,7 +73,9 @@ SOURCES-$(ALSA)                 += audio/out/ao_alsa.c
 SOURCES-$(CACA)                 += video/out/vo_caca.c
 SOURCES-$(SDL)                  += audio/out/ao_sdl.c
 SOURCES-$(SDL2)                 += video/out/vo_sdl.c
-SOURCES-$(COREAUDIO)            += audio/out/ao_coreaudio.c
+SOURCES-$(COREAUDIO)            += audio/out/ao_coreaudio.c \
+                                   audio/out/ao_coreaudio_utils.c \
+                                   audio/out/ao_coreaudio_properties.c
 SOURCES-$(COREVIDEO)            += video/out/vo_corevideo.m
 SOURCES-$(DIRECT3D)             += video/out/vo_direct3d.c \
                                    video/out/w32_common.c
@@ -128,7 +130,6 @@ SOURCES = talloc.c \
           audio/format.c \
           audio/mixer.c \
           audio/reorder_ch.c \
-          audio/decode/ad.c \
           audio/decode/ad_lavc.c \
           audio/decode/ad_spdif.c      \
           audio/decode/dec_audio.c \
@@ -183,7 +184,6 @@ SOURCES = talloc.c \
           core/playlist.c \
           core/playlist_parser.c \
           core/screenshot.c \
-          core/subopt-helper.c \
           core/version.c \
           core/input/input.c \
           core/timeline/tl_edl.c \

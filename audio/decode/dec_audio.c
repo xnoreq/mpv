@@ -41,7 +41,18 @@
 
 #include "audio/filter/af.h"
 
-struct af_cfg af_cfg = {0}; // Configuration for audio filters
+extern const struct ad_functions ad_mpg123;
+extern const struct ad_functions ad_lavc;
+extern const struct ad_functions ad_spdif;
+
+static const struct ad_functions * const ad_drivers[] = {
+#ifdef CONFIG_MPG123
+    &ad_mpg123,
+#endif
+    &ad_lavc,
+    &ad_spdif,
+    NULL
+};
 
 static int init_audio_codec(sh_audio_t *sh_audio, const char *decoder)
 {
@@ -90,8 +101,8 @@ static int init_audio_codec(sh_audio_t *sh_audio, const char *decoder)
 struct mp_decoder_list *mp_audio_decoder_list(void)
 {
     struct mp_decoder_list *list = talloc_zero(NULL, struct mp_decoder_list);
-    for (int i = 0; mpcodecs_ad_drivers[i] != NULL; i++)
-        mpcodecs_ad_drivers[i]->add_decoders(list);
+    for (int i = 0; ad_drivers[i] != NULL; i++)
+        ad_drivers[i]->add_decoders(list);
     return list;
 }
 
@@ -106,9 +117,9 @@ static struct mp_decoder_list *mp_select_audio_decoders(const char *codec,
 
 static const struct ad_functions *find_driver(const char *name)
 {
-    for (int i = 0; mpcodecs_ad_drivers[i] != NULL; i++) {
-        if (strcmp(mpcodecs_ad_drivers[i]->name, name) == 0)
-            return mpcodecs_ad_drivers[i];
+    for (int i = 0; ad_drivers[i] != NULL; i++) {
+        if (strcmp(ad_drivers[i]->name, name) == 0)
+            return ad_drivers[i];
     }
     return NULL;
 }
@@ -167,7 +178,6 @@ void uninit_audio(sh_audio_t *sh_audio)
 {
     if (sh_audio->afilter) {
         mp_msg(MSGT_DECAUDIO, MSGL_V, "Uninit audio filters...\n");
-        af_uninit(sh_audio->afilter);
         af_destroy(sh_audio->afilter);
         sh_audio->afilter = NULL;
     }
@@ -186,9 +196,10 @@ int init_audio_filters(sh_audio_t *sh_audio, int in_samplerate,
                        int *out_samplerate, struct mp_chmap *out_channels,
                        int *out_format)
 {
+    if (!sh_audio->afilter)
+        sh_audio->afilter = af_new(sh_audio->opts);
     struct af_stream *afs = sh_audio->afilter;
-    if (!afs)
-        afs = af_new(sh_audio->opts);
+
     // input format: same as codec's output format:
     afs->input.rate = in_samplerate;
     mp_audio_set_channels(&afs->input, &sh_audio->channels);
@@ -199,9 +210,6 @@ int init_audio_filters(sh_audio_t *sh_audio, int in_samplerate,
     mp_audio_set_channels(&afs->output, out_channels);
     mp_audio_set_format(&afs->output, *out_format);
 
-    // filter config:
-    memcpy(&afs->cfg, &af_cfg, sizeof(struct af_cfg));
-
     char *s_from = mp_audio_config_to_str(&afs->input);
     char *s_to = mp_audio_config_to_str(&afs->output);
     mp_tmsg(MSGT_DECAUDIO, MSGL_V,
@@ -210,9 +218,9 @@ int init_audio_filters(sh_audio_t *sh_audio, int in_samplerate,
     talloc_free(s_to);
 
     // let's autoprobe it!
-    if (0 != af_init(afs)) {
-        sh_audio->afilter = NULL;
+    if (af_init(afs) != 0) {
         af_destroy(afs);
+        sh_audio->afilter = NULL;
         return 0;   // failed :(
     }
 
@@ -220,8 +228,6 @@ int init_audio_filters(sh_audio_t *sh_audio, int in_samplerate,
     *out_channels = afs->output.channels;
     *out_format = afs->output.format;
 
-    // ok!
-    sh_audio->afilter = (void *) afs;
     return 1;
 }
 
