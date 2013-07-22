@@ -12,7 +12,7 @@ local osc_param = {
     vidscale = true,                        -- scale the controller with the video? don't use false, currently causes glitches
     valign = 0.8,                           -- vertical alignment, -1 (top) to 1 (bottom)
     halign = 0,                             -- vertical alignment, -1 (left) to 1 (right)
-    deadzonedist = 0.1,                     -- distance between OSC and deadzone
+    deadzonedist = 0.15,                    -- distance between OSC and deadzone
     iAmAProgrammer = false,                 -- start counting stuff at 0
 
     -- not user-safe
@@ -31,6 +31,19 @@ local osc_param = {
 local osc_styles = {
     bigButtons = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs50\\fnosd-font}",
     smallButtonsL = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs20\\fnosd-font}",
+    smallButtonsLlabel = "{\\fs17}",
+    smallButtonsR = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs30\\fnosd-font}",
+
+    elementDown = "{\\1c&H999999}",
+    elementDisab = "{\\1a&H88&}",
+    timecodes = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs20}",
+    vidtitle = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs12}",
+    box = "{\\bord1\\1c&H000000\\1a&H50&\\3c&HFFFFFF\\3a&H50&}",
+}
+--[[
+local osc_styles = {
+    bigButtons = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs50\\fnosd-font}",
+    smallButtonsL = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs20\\fnosd-font}",
     smallButtonsLlabel = "{\\fs17\\fnsans-serif}",
     smallButtonsR = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs30\\fnosd-font}",
 
@@ -38,8 +51,9 @@ local osc_styles = {
     elementDisab = "{\\1a&H88&}",
     timecodes = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs20\\fnsans-serif}",
     vidtitle = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs12\\fnsans-serif}",
-    box = "{\\bord1\\1c&H000000\\1a&H64&\\3c&HFFFFFF\\3a&H64&}",
+    box = "{\\bord1\\1c&H000000\\1a&H50&\\3c&HFFFFFF\\3a&H50&}",
 }
+--]]
 
 -- internal states, do not touch
 local state = {
@@ -111,6 +125,13 @@ function get_slider_value(element)
     return limit_range(s_min, s_max, pos)
 end
 
+function countone(val)
+    if not (osc_param.iAmAProgrammer) then
+        val = val + 1
+    end
+    return val
+end
+
 -- align:  -1 .. +1
 -- frame:  size of the containing area
 -- obj:    size of the object that should be positioned inside the area
@@ -145,7 +166,7 @@ function register_element(type, x, y, an, w, h, style, content, eventresponder, 
     if metainfo.visible then
         local ass = assdraw.ass_new()
 
-        ass:append("{}") -- shitty hack to troll the new_event funtion into inserting an \n 
+        ass:append("{}") -- shitty hack to troll the new_event function into inserting a \n 
         ass:new_event()
         ass:pos(x, y) -- positioning
         ass:an(an) 
@@ -157,7 +178,6 @@ function register_element(type, x, y, an, w, h, style, content, eventresponder, 
             eventresponder = nil
         end
 
-
         -- Calculate the hitbox
         local bX1, bY1, bX2, bY2 = get_hitbox_coords(x, y, an, w, h)
         local hitbox
@@ -168,8 +188,6 @@ function register_element(type, x, y, an, w, h, style, content, eventresponder, 
         else
             hitbox = {x1 = bX1, y1 = bY1, x2 = bX2, y2 = bY2}
         end
-
-        
 
         local element = {
             type = type,
@@ -234,7 +252,7 @@ function register_slider(x, y, an, w, h, style, min, max, markerF, posF, eventre
         for n = 1, #markers do
             if (markers[n] > min) and (markers[n] < max) then
 
-                local coordL, coordR = fill_offset, (w - (2*fill_offset))
+                local coordL, coordR = fill_offset, (w - fill_offset)
 
                 local s = scale_value(min, max, coordL, coordR, markers[n])
 
@@ -296,7 +314,7 @@ function render_elements(master_ass)
 
             local fill_offset = element.metainfo.slider.border + element.metainfo.slider.gap
 
-            local coordL, coordR = fill_offset, (element.w - (2*fill_offset))
+            local coordL, coordR = fill_offset, (element.w - fill_offset)
 
             local xp = scale_value(element.metainfo.slider.min, element.metainfo.slider.max, coordL, coordR, pos)
 
@@ -319,12 +337,6 @@ function render_elements(master_ass)
         master_ass:merge(elem_ass)
     end
 end
-
---
--- Eventhandling
---
-
--- will eventually be here
 
 --
 -- Initialisation and arrangement
@@ -390,10 +402,7 @@ function osc_init()
         local title = "${media-title}"
 
         if tonumber(mp.property_get("playlist-count")) > 1 then
-            local playlist_pos = tonumber(mp.property_get("playlist-pos"))
-            if not (osc_param.iAmAProgrammer) then
-                playlist_pos = playlist_pos + 1
-            end
+            local playlist_pos = countone(tonumber(mp.property_get("playlist-pos")))
             title = "[" .. playlist_pos .. "/${playlist-count}] " .. title
         end
 
@@ -483,40 +492,65 @@ function osc_init()
 
     --get video/audio/sub track counts
     local tracktable = mp.get_track_list()
-    local videotracks, audiotracks, subtracks = 0, 0, 0
+    local videotracks, audiotracks, subtracks = {}, {}, {}
     for n = 1, #tracktable do
         if tracktable[n].type == "video" then
-            videotracks = videotracks + 1
+            table.insert(videotracks, tracktable[n])
         elseif tracktable[n].type == "audio" then
-            audiotracks = audiotracks + 1
+            table.insert(audiotracks, tracktable[n])
         elseif tracktable[n].type == "sub" then
-            subtracks = subtracks + 1
+            table.insert(subtracks, tracktable[n])
         end
     end
 
     --cycle audio tracks
-    
+
     local contentF = function (ass)
         local aid = ""
         if (mp.property_get("audio") == "no") then
             aid = "–"
         else
-            if (osc_param.iAmAProgrammer) then
-                aid = tonumber(mp.property_get("audio"))
-            else
-                aid = tonumber(mp.property_get("audio")) + 1
-            end
+            aid = countone(tonumber(mp.property_get("audio")))
         end
-        ass:append("\238\132\134 " .. osc_styles.smallButtonsLlabel .. aid .. "/" .. audiotracks)
+        ass:append("\238\132\134 " .. osc_styles.smallButtonsLlabel .. aid .. "/" .. #audiotracks)
     end
 
     -- do we have any?
     local metainfo = {}
-    metainfo.enabled = (audiotracks > 0)
+    metainfo.enabled = (#audiotracks > 0)
 
     local eventresponder = {}
-    eventresponder.mouse_btn0_up = function () mp.send_command("add audio 1") end
-    eventresponder.mouse_btn2_up = function () mp.send_command("add audio -1") end
+    eventresponder.mouse_btn0_up = function ()
+        mp.send_command("no-osd add audio 1")
+        if (mp.property_get("audio") == "no") then
+            mp.send_command("show_text \"".. "Audio Track: none" .."\"")
+        else
+            local new_aid = tonumber(mp.property_get("audio"))
+            local msg = "Audio Track: " .. countone(new_aid) .. "/" .. #audiotracks .. " [" .. audiotracks[new_aid + 1].language .. "] " .. audiotracks[new_aid + 1].title
+            mp.send_command("show_text \"".. msg .."\"")
+        end
+    end
+    eventresponder.mouse_btn2_up = function ()
+        mp.send_command("no-osd add audio -1")
+        if (mp.property_get("audio") == "no") then
+            mp.send_command("show_text \"".. "Audio Track: none" .."\"")
+        else
+            local new_aid = tonumber(mp.property_get("audio"))
+            local msg = "Audio Track: " .. countone(new_aid) .. "/" .. #audiotracks .. " [" .. audiotracks[new_aid + 1].language .. "] " .. audiotracks[new_aid + 1].title
+            mp.send_command("show_text \"".. msg .."\"")
+        end
+    end
+    eventresponder["shift+mouse_btn0_down"] = function ()
+        local msg = "Available Audio Tracks: "
+        if #audiotracks == 0 then
+            msg = "none"
+        else
+            for n = 1, #audiotracks do 
+                msg = msg .. "\n" .. countone(n - 1) .. ": [" .. audiotracks[n].language .. "] " .. audiotracks[n].title
+            end
+        end
+        mp.send_command("show_text \"".. msg .."\"")
+    end
     register_button(posX-pos_offsetX, bbposY, 1, 70, 18, osc_styles.smallButtonsL, contentF, eventresponder, metainfo)
     
 
@@ -527,22 +561,47 @@ function osc_init()
         if (mp.property_get("sub") == "no") then
             sid = "–"
         else
-            if (osc_param.iAmAProgrammer) then
-                sid = tonumber(mp.property_get("sub"))
-            else
-                sid = tonumber(mp.property_get("sub")) + 1
-            end
+            sid = countone(tonumber(mp.property_get("sub")))
         end
-        ass:append("\238\132\135 " .. osc_styles.smallButtonsLlabel .. sid .. "/" .. subtracks)
+        ass:append("\238\132\135 " .. osc_styles.smallButtonsLlabel .. sid .. "/" .. #subtracks)
     end
     
     -- do we have any?
     local metainfo = {}
-    metainfo.enabled = (subtracks > 0)
+    metainfo.enabled = (#subtracks > 0)
     
     local eventresponder = {}
-    eventresponder.mouse_btn0_up = function () mp.send_command("add sub 1") end
-    eventresponder.mouse_btn2_up = function () mp.send_command("add sub -1") end
+    eventresponder.mouse_btn0_up = function ()
+        mp.send_command("no-osd add sub 1")
+        if (mp.property_get("sub") == "no") then
+            mp.send_command("show_text \"".. "Subtitle Track: none" .."\"")
+        else
+            local new_sid = tonumber(mp.property_get("sub"))
+            local msg = "Subtitle Track: " .. countone(new_sid) .. "/" .. #subtracks .. " [" .. subtracks[new_sid + 1].language .. "] " .. subtracks[new_sid + 1].title
+            mp.send_command("show_text \"".. msg .."\"")
+        end
+    end
+    eventresponder.mouse_btn2_up = function ()
+        mp.send_command("no-osd add sub -1")
+        if (mp.property_get("sub") == "no") then
+            mp.send_command("show_text \"".. "Subtitle Track: none" .."\"")
+        else
+            local new_sid = tonumber(mp.property_get("sub"))
+            local msg = "Subtitle Track: " .. countone(new_sid) .. "/" .. #subtracks .. " [" .. subtracks[new_sid + 1].language .. "] " .. subtracks[new_sid + 1].title
+            mp.send_command("show_text \"".. msg .."\"")
+        end
+    end
+    eventresponder["shift+mouse_btn0_down"] = function ()
+        local msg = "Available Subtitle Tracks: "
+        if #subtracks == 0 then
+            msg = "none"
+        else
+            for n = 1, #subtracks do 
+                msg = msg .. "\n" .. countone(n - 1) .. ": [" .. subtracks[n].language .. "] " .. subtracks[n].title
+            end
+        end
+        mp.send_command("show_text \"".. msg .."\"")
+    end
     register_button(posX-pos_offsetX, bbposY, 7, 70, 18, osc_styles.smallButtonsL, contentF, eventresponder, metainfo)
 
 
@@ -708,6 +767,7 @@ function render()
 
     local playresx, playresy = mp.get_osd_resolution()
     ass:append("{get_osd_resolution: X:" .. playresx .. " Y:" .. playresy .. "}")
+    --ass:append(now)
     --local playresx, playresy = mp.get_osd_resolution()
     --ass:append("get_mouse_pos: X:" .. x .. " Y:" .. y .. "")
     --if state.active_button == nil then
@@ -740,6 +800,10 @@ function render()
     mp.set_osd_ass(osc_param.playresy * aspect, osc_param.playresy, ass.text)
 
 end
+
+--
+-- Eventhandling
+--
 
 function process_event(source, what)
 
