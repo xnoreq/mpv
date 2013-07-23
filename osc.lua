@@ -132,6 +132,21 @@ function countone(val)
     return val
 end
 
+function build_tracklist(tracks)
+    local msg = ""
+    if #tracks == 0 then
+        msg = "none"
+    else
+        for n = 1, #tracks do 
+            local lang, title = "unkown", ""
+            if not(tracks[n].language == nil) then lang = tracks[n].language end
+            if not(tracks[n].title == nil) then title = tracks[n].title end
+            msg = msg .. "\n" .. countone(n - 1) .. ": [" .. lang .. "] " .. title
+        end
+    end
+    return msg
+end
+
 -- align:  -1 .. +1
 -- frame:  size of the containing area
 -- obj:    size of the object that should be positioned inside the area
@@ -520,6 +535,7 @@ function osc_init()
     metainfo.enabled = (#audiotracks > 0)
 
     local eventresponder = {}
+    --[[ This is shit.
     eventresponder.mouse_btn0_up = function ()
         mp.send_command("no-osd add audio 1")
         if (mp.property_get("audio") == "no") then
@@ -540,15 +556,12 @@ function osc_init()
             mp.send_command("show_text \"".. msg .."\"")
         end
     end
+    --]]
+    eventresponder.mouse_btn0_up = function () mp.send_command("add audio 1") end
+    eventresponder.mouse_btn2_up = function () mp.send_command("add audio -1") end
     eventresponder["shift+mouse_btn0_down"] = function ()
         local msg = "Available Audio Tracks: "
-        if #audiotracks == 0 then
-            msg = "none"
-        else
-            for n = 1, #audiotracks do 
-                msg = msg .. "\n" .. countone(n - 1) .. ": [" .. audiotracks[n].language .. "] " .. audiotracks[n].title
-            end
-        end
+        msg = msg .. build_tracklist(audiotracks)
         mp.send_command("show_text \"".. msg .."\"")
     end
     register_button(posX-pos_offsetX, bbposY, 1, 70, 18, osc_styles.smallButtonsL, contentF, eventresponder, metainfo)
@@ -571,6 +584,7 @@ function osc_init()
     metainfo.enabled = (#subtracks > 0)
     
     local eventresponder = {}
+    --[[ This is also shit.
     eventresponder.mouse_btn0_up = function ()
         mp.send_command("no-osd add sub 1")
         if (mp.property_get("sub") == "no") then
@@ -591,20 +605,15 @@ function osc_init()
             mp.send_command("show_text \"".. msg .."\"")
         end
     end
+    --]]
+    eventresponder.mouse_btn0_up = function () mp.send_command("add sub 1") end
+    eventresponder.mouse_btn2_up = function () mp.send_command("add sub -1") end
     eventresponder["shift+mouse_btn0_down"] = function ()
         local msg = "Available Subtitle Tracks: "
-        if #subtracks == 0 then
-            msg = "none"
-        else
-            for n = 1, #subtracks do 
-                msg = msg .. "\n" .. countone(n - 1) .. ": [" .. subtracks[n].language .. "] " .. subtracks[n].title
-            end
-        end
+        msg = msg .. build_tracklist(subtracks)
         mp.send_command("show_text \"".. msg .."\"")
     end
     register_button(posX-pos_offsetX, bbposY, 7, 70, 18, osc_styles.smallButtonsL, contentF, eventresponder, metainfo)
-
-
 
 
     --toggle FS
@@ -650,7 +659,6 @@ function osc_init()
     local eventresponder = {}
     local sliderF = function (element)
         mp.send_command(string.format("no-osd seek %f absolute-percent keyframes", get_slider_value(element)))
-        
     end
     eventresponder.mouse_move = sliderF
     eventresponder.mouse_btn0_down = sliderF
@@ -682,7 +690,6 @@ function osc_init()
     eventresponder.mouse_btn0_up = function () state.rightTC_trem = not state.rightTC_trem end
 
     register_button(posX + pos_offsetX, posY + pos_offsetY + 5, 3, 110, 20, osc_styles.timecodes, contentF, eventresponder, metainfo)
-    
 
 end
 
