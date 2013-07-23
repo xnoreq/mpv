@@ -32,26 +32,15 @@
  * when you are wanting to do good buffering of audio).
  */
 
-#include <CoreServices/CoreServices.h>
-#include <AudioUnit/AudioUnit.h>
-#include <AudioToolbox/AudioToolbox.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <inttypes.h>
-#include <sys/types.h>
-#include <unistd.h>
-
 #include "config.h"
-#include "core/mp_msg.h"
-
 #include "ao.h"
 #include "audio/format.h"
 #include "osdep/timer.h"
-#include "core/subopt-helper.h"
+#include "core/m_option.h"
 #include "core/mp_ring.h"
-
-#define ca_msg(a, b, c ...) mp_msg(a, b, "AO: [coreaudio] " c)
+#include "core/mp_msg.h"
+#include "audio/out/ao_coreaudio_properties.h"
+#include "audio/out/ao_coreaudio_utils.h"
 
 static void audio_pause(struct ao *ao);
 static void audio_resume(struct ao *ao);
@@ -60,38 +49,48 @@ static void reset(struct ao *ao);
 static void print_buffer(struct mp_ring *buffer)
 {
     void *tctx = talloc_new(NULL);
-    ca_msg(MSGT_AO, MSGL_V, "%s\n", mp_ring_repr(buffer, tctx));
+    ca_msg(MSGL_V, "%s\n", mp_ring_repr(buffer, tctx));
     talloc_free(tctx);
 }
 
+struct priv_d {
+    // digital render callback
+    AudioDeviceIOProcID render_cb;
 
-struct priv
-{
-    AudioDeviceID i_selected_dev;           /* Keeps DeviceID of the selected device. */
-    int b_supports_digital;                 /* Does the currently selected device support digital mode? */
-    int b_digital;                          /* Are we running in digital mode? */
-    int b_muted;                            /* Are we muted in digital mode? */
+    // pid set for hog mode, (-1) means that hog mode on the device was
+    // released. hog mode is exclusive access to a device
+    pid_t hog_pid;
 
-    AudioDeviceIOProcID renderCallback;     /* Render callback used for SPDIF */
+    // stream selected for digital playback by the detection in init
+    AudioStreamID stream;
 
-    /* AudioUnit */
-    AudioUnit theOutputUnit;
+    // stream index in an AudioBufferList
+    int stream_idx;
 
-    /* CoreAudio SPDIF mode specific */
-    pid_t i_hog_pid;                        /* Keeps the pid of our hog status. */
-    AudioStreamID i_stream_id;              /* The StreamID that has a cac3 streamformat */
-    int i_stream_index;                     /* The index of i_stream_id in an AudioBufferList */
-    AudioStreamBasicDescription stream_format; /* The format we changed the stream to */
-    AudioStreamBasicDescription sfmt_revert; /* The original format of the stream */
-    int b_revert;                           /* Whether we need to revert the stream format */
-    int b_changed_mixing;                   /* Whether we need to set the mixing mode back */
-    int b_stream_format_changed;            /* Flag for main thread to reset stream's format to digital and reset buffer */
+    // format we changed the stream to: for the digital case each application
+    // sets the stream format for a device to what it needs
+    AudioStreamBasicDescription stream_asbd;
+    AudioStreamBasicDescription original_asbd;
 
-    /* Original common part */
-    int packetSize;
-    int paused;
+    bool changed_mixing;
+    int stream_asbd_changed;
+    bool muted;
+};
+
+struct priv {
+    AudioDeviceID device;   // selected device
+    bool is_digital;        // running in digital mode?
+
+    AudioUnit audio_unit;   // AudioUnit for lpcm output
+
+    bool paused;
 
     struct mp_ring *buffer;
+    struct priv_d *digital;
+
+    // options
+    int opt_device_id;
+    int opt_list;
 };
 
 static int get_ring_size(struct ao *ao)
@@ -100,30 +99,36 @@ static int get_ring_size(struct ao *ao)
             ao->format, 0.5, ao->channels.num, ao->samplerate);
 }
 
-static OSStatus theRenderProc(void *inRefCon,
-                              AudioUnitRenderActionFlags *inActionFlags,
-                              const AudioTimeStamp *inTimeStamp,
-                              UInt32 inBusNumber, UInt32 inNumFrames,
-                              AudioBufferList *ioData)
+static OSStatus render_cb_lpcm(void *ctx, AudioUnitRenderActionFlags *aflags,
+                              const AudioTimeStamp *ts, UInt32 bus,
+                              UInt32 frames, AudioBufferList *buffer_list)
 {
-    struct ao *ao  = inRefCon;
-    struct priv *p = ao->priv;
+    struct ao *ao   = ctx;
+    struct priv *p  = ao->priv;
 
-    int buffered  = mp_ring_buffered(p->buffer);
-    int requested = inNumFrames * p->packetSize;
+    AudioBuffer buf = buffer_list->mBuffers[0];
+    int requested   = buf.mDataByteSize;
 
-    if (buffered > requested)
-        buffered = requested;
+    buf.mDataByteSize = mp_ring_read(p->buffer, buf.mData, requested);
 
-    if (buffered) {
-        mp_ring_read(p->buffer,
-                           (unsigned char *)ioData->mBuffers[0].mData,
-                           buffered);
-    } else {
-        audio_pause(ao);
-    }
+    return noErr;
+}
 
-    ioData->mBuffers[0].mDataByteSize = buffered;
+static OSStatus render_cb_digital(
+        AudioDeviceID device, const AudioTimeStamp *ts,
+        const void *in_data, const AudioTimeStamp *in_ts,
+        AudioBufferList *out_data, const AudioTimeStamp *out_ts, void *ctx)
+{
+    struct ao *ao    = ctx;
+    struct priv *p   = ao->priv;
+    struct priv_d *d = p->digital;
+    AudioBuffer buf  = out_data->mBuffers[d->stream_idx];
+    int requested    = buf.mDataByteSize;
+
+    if (d->muted)
+        mp_ring_drain(p->buffer, requested);
+    else
+        mp_ring_read(p->buffer, buf.mData, requested);
 
     return noErr;
 }
@@ -137,31 +142,28 @@ static int control(struct ao *ao, enum aocontrol cmd, void *arg)
     switch (cmd) {
     case AOCONTROL_GET_VOLUME:
         control_vol = (ao_control_vol_t *)arg;
-        if (p->b_digital) {
+        if (p->is_digital) {
+            struct priv_d *d = p->digital;
             // Digital output has no volume adjust.
-            int vol = p->b_muted ? 0 : 100;
+            int vol = d->muted ? 0 : 100;
             *control_vol = (ao_control_vol_t) {
                 .left = vol, .right = vol,
             };
             return CONTROL_TRUE;
         }
-        err = AudioUnitGetParameter(p->theOutputUnit, kHALOutputParam_Volume,
+
+        err = AudioUnitGetParameter(p->audio_unit, kHALOutputParam_Volume,
                                     kAudioUnitScope_Global, 0, &vol);
 
-        if (err == 0) {
-            // printf("GET VOL=%f\n", vol);
-            control_vol->left = control_vol->right = vol * 100.0 / 4.0;
-            return CONTROL_TRUE;
-        } else {
-            ca_msg(MSGT_AO, MSGL_WARN,
-                   "could not get HAL output volume: [%4.4s]\n", (char *)&err);
-            return CONTROL_FALSE;
-        }
+        CHECK_CA_ERROR("could not get HAL output volume");
+        control_vol->left = control_vol->right = vol * 100.0;
+        return CONTROL_TRUE;
 
     case AOCONTROL_SET_VOLUME:
         control_vol = (ao_control_vol_t *)arg;
 
-        if (p->b_digital) {
+        if (p->is_digital) {
+            struct priv_d *d = p->digital;
             // Digital output can not set volume. Here we have to return true
             // to make mixer forget it. Else mixer will add a soft filter,
             // that's not we expected and the filter not support ac3 stream
@@ -170,958 +172,423 @@ static int control(struct ao *ao, enum aocontrol cmd, void *arg)
             // Although not support set volume, but at least we support mute.
             // MPlayer set mute by set volume to zero, we handle it.
             if (control_vol->left == 0 && control_vol->right == 0)
-                p->b_muted = 1;
+                d->muted = true;
             else
-                p->b_muted = 0;
+                d->muted = false;
             return CONTROL_TRUE;
         }
 
-        vol = (control_vol->left + control_vol->right) * 4.0 / 200.0;
-        err = AudioUnitSetParameter(p->theOutputUnit, kHALOutputParam_Volume,
+        vol = (control_vol->left + control_vol->right) / 200.0;
+        err = AudioUnitSetParameter(p->audio_unit, kHALOutputParam_Volume,
                                     kAudioUnitScope_Global, 0, vol, 0);
-        if (err == 0) {
-            // printf("SET VOL=%f\n", vol);
-            return CONTROL_TRUE;
-        } else {
-            ca_msg(MSGT_AO, MSGL_WARN,
-                   "could not set HAL output volume: [%4.4s]\n", (char *)&err);
-            return CONTROL_FALSE;
-        }
-    /* Everything is currently unimplemented */
-    default:
-        return CONTROL_FALSE;
+
+        CHECK_CA_ERROR("could not set HAL output volume");
+        return CONTROL_TRUE;
+
+    } // end switch
+    return CONTROL_UNKNOWN;
+
+coreaudio_error:
+    return CONTROL_ERROR;
+}
+
+static void print_list(void)
+{
+    char *help = talloc_strdup(NULL, "Available output devices:\n");
+
+    AudioDeviceID *devs;
+    size_t n_devs;
+
+    OSStatus err =
+        CA_GET_ARY(kAudioObjectSystemObject, kAudioHardwarePropertyDevices,
+                   &devs, &n_devs);
+
+    CHECK_CA_ERROR("Failed to get list of output devices.");
+
+    for (int i = 0; i < n_devs; i++) {
+        char *name;
+        OSStatus err = CA_GET_STR(devs[i], kAudioObjectPropertyName, &name);
+
+        if (err == noErr)
+            talloc_steal(devs, name);
+        else
+            name = "Unknown";
+
+        help = talloc_asprintf_append(
+                help, "  * %s (id: %" PRIu32 ")\n", name, devs[i]);
     }
 
+    talloc_free(devs);
+
+coreaudio_error:
+    ca_msg(MSGL_INFO, "%s", help);
+    talloc_free(help);
 }
 
+static int init_lpcm(struct ao *ao, AudioStreamBasicDescription asbd);
+static int init_digital(struct ao *ao, AudioStreamBasicDescription asbd);
 
-static void print_format(int lev, const char *str,
-                         const AudioStreamBasicDescription *f)
-{
-    uint32_t flags = (uint32_t) f->mFormatFlags;
-    ca_msg(MSGT_AO, lev,
-           "%s %7.1fHz %" PRIu32 "bit [%c%c%c%c][%" PRIu32 "][%" PRIu32 "][%" PRIu32 "][%" PRIu32 "][%" PRIu32 "] %s %s %s%s%s%s\n",
-           str, f->mSampleRate, f->mBitsPerChannel,
-           (int)(f->mFormatID & 0xff000000) >> 24,
-           (int)(f->mFormatID & 0x00ff0000) >> 16,
-           (int)(f->mFormatID & 0x0000ff00) >>  8,
-           (int)(f->mFormatID & 0x000000ff) >>  0,
-           f->mFormatFlags, f->mBytesPerPacket,
-           f->mFramesPerPacket, f->mBytesPerFrame,
-           f->mChannelsPerFrame,
-           (flags & kAudioFormatFlagIsFloat) ? "float" : "int",
-           (flags & kAudioFormatFlagIsBigEndian) ? "BE" : "LE",
-           (flags & kAudioFormatFlagIsSignedInteger) ? "S" : "U",
-           (flags & kAudioFormatFlagIsPacked) ? " packed" : "",
-           (flags & kAudioFormatFlagIsAlignedHigh) ? " aligned" : "",
-           (flags & kAudioFormatFlagIsNonInterleaved) ? " ni" : "");
-}
-
-static OSStatus GetAudioProperty(AudioObjectID id,
-                                 AudioObjectPropertySelector selector,
-                                 UInt32 outSize, void *outData)
-{
-    AudioObjectPropertyAddress property_address;
-
-    property_address.mSelector = selector;
-    property_address.mScope    = kAudioObjectPropertyScopeGlobal;
-    property_address.mElement  = kAudioObjectPropertyElementMaster;
-
-    return AudioObjectGetPropertyData(id, &property_address, 0, NULL, &outSize,
-                                      outData);
-}
-
-static UInt32 GetAudioPropertyArray(AudioObjectID id,
-                                    AudioObjectPropertySelector selector,
-                                    AudioObjectPropertyScope scope,
-                                    void **outData)
+static int init(struct ao *ao)
 {
     OSStatus err;
-    AudioObjectPropertyAddress property_address;
-    UInt32 i_param_size;
+    struct priv *p   = ao->priv;
 
-    property_address.mSelector = selector;
-    property_address.mScope    = scope;
-    property_address.mElement  = kAudioObjectPropertyElementMaster;
+    if (p->opt_list) print_list();
 
-    err = AudioObjectGetPropertyDataSize(id, &property_address, 0, NULL,
-                                         &i_param_size);
+    struct priv_d *d = talloc_zero(p, struct priv_d);
 
-    if (err != noErr)
-        return 0;
-
-    *outData = malloc(i_param_size);
-
-
-    err = AudioObjectGetPropertyData(id, &property_address, 0, NULL,
-                                     &i_param_size, *outData);
-
-    if (err != noErr) {
-        free(*outData);
-        return 0;
-    }
-
-    return i_param_size;
-}
-
-static UInt32 GetGlobalAudioPropertyArray(AudioObjectID id,
-                                          AudioObjectPropertySelector selector,
-                                          void **outData)
-{
-    return GetAudioPropertyArray(id, selector, kAudioObjectPropertyScopeGlobal,
-                                 outData);
-}
-
-static OSStatus GetAudioPropertyString(AudioObjectID id,
-                                       AudioObjectPropertySelector selector,
-                                       char **outData)
-{
-    OSStatus err;
-    AudioObjectPropertyAddress property_address;
-    UInt32 i_param_size;
-    CFStringRef string;
-    CFIndex string_length;
-
-    property_address.mSelector = selector;
-    property_address.mScope    = kAudioObjectPropertyScopeGlobal;
-    property_address.mElement  = kAudioObjectPropertyElementMaster;
-
-    i_param_size = sizeof(CFStringRef);
-    err = AudioObjectGetPropertyData(id, &property_address, 0, NULL,
-                                     &i_param_size, &string);
-    if (err != noErr)
-        return err;
-
-    string_length = CFStringGetMaximumSizeForEncoding(CFStringGetLength(string),
-                                                      kCFStringEncodingASCII);
-    *outData = malloc(string_length + 1);
-    CFStringGetCString(string, *outData, string_length + 1,
-                       kCFStringEncodingASCII);
-
-    CFRelease(string);
-
-    return err;
-}
-
-static OSStatus SetAudioProperty(AudioObjectID id,
-                                 AudioObjectPropertySelector selector,
-                                 UInt32 inDataSize, void *inData)
-{
-    AudioObjectPropertyAddress property_address;
-
-    property_address.mSelector = selector;
-    property_address.mScope    = kAudioObjectPropertyScopeGlobal;
-    property_address.mElement  = kAudioObjectPropertyElementMaster;
-
-    return AudioObjectSetPropertyData(id, &property_address, 0, NULL,
-                                      inDataSize, inData);
-}
-
-static Boolean IsAudioPropertySettable(AudioObjectID id,
-                                       AudioObjectPropertySelector selector,
-                                       Boolean *outData)
-{
-    AudioObjectPropertyAddress property_address;
-
-    property_address.mSelector = selector;
-    property_address.mScope    = kAudioObjectPropertyScopeGlobal;
-    property_address.mElement  = kAudioObjectPropertyElementMaster;
-
-    return AudioObjectIsPropertySettable(id, &property_address, outData);
-}
-
-static int AudioDeviceSupportsDigital(AudioDeviceID i_dev_id);
-static int AudioStreamSupportsDigital(AudioStreamID i_stream_id);
-static int OpenSPDIF(struct ao *ao);
-static int AudioStreamChangeFormat(AudioStreamID i_stream_id,
-                                   AudioStreamBasicDescription change_format);
-static OSStatus RenderCallbackSPDIF(AudioDeviceID inDevice,
-                                    const AudioTimeStamp *inNow,
-                                    const void *inInputData,
-                                    const AudioTimeStamp *inInputTime,
-                                    AudioBufferList *outOutputData,
-                                    const AudioTimeStamp *inOutputTime,
-                                    void *threadGlobals);
-static OSStatus StreamListener(AudioObjectID inObjectID,
-                               UInt32 inNumberAddresses,
-                               const AudioObjectPropertyAddress inAddresses[],
-                               void *inClientData);
-static OSStatus DeviceListener(AudioObjectID inObjectID,
-                               UInt32 inNumberAddresses,
-                               const AudioObjectPropertyAddress inAddresses[],
-                               void *inClientData);
-
-static void print_help(void)
-{
-    OSStatus err;
-    UInt32 i_param_size;
-    int num_devices;
-    AudioDeviceID *devids;
-    char *device_name;
-
-    mp_msg(MSGT_AO, MSGL_FATAL,
-           "\n-ao coreaudio commandline help:\n"
-           "Example: mpv -ao coreaudio:device_id=266\n"
-           "    open Core Audio with output device ID 266.\n"
-           "\nOptions:\n"
-           "    device_id\n"
-           "        ID of output device to use (0 = default device)\n"
-           "    help\n"
-           "        This help including list of available devices.\n"
-           "\n"
-           "Available output devices:\n");
-
-    i_param_size = GetGlobalAudioPropertyArray(kAudioObjectSystemObject,
-                                               kAudioHardwarePropertyDevices,
-                                               (void **)&devids);
-
-    if (!i_param_size) {
-        mp_msg(MSGT_AO, MSGL_FATAL, "Failed to get list of output devices.\n");
-        return;
-    }
-
-    num_devices = i_param_size / sizeof(AudioDeviceID);
-
-    for (int i = 0; i < num_devices; ++i) {
-        err = GetAudioPropertyString(devids[i], kAudioObjectPropertyName,
-                                     &device_name);
-
-        if (err == noErr) {
-            mp_msg(MSGT_AO, MSGL_FATAL, "%s (id: %" PRIu32 ")\n", device_name,
-                   devids[i]);
-            free(device_name);
-        } else
-            mp_msg(MSGT_AO, MSGL_FATAL, "Unknown (id: %" PRIu32 ")\n",
-                   devids[i]);
-    }
-
-    mp_msg(MSGT_AO, MSGL_FATAL, "\n");
-
-    free(devids);
-}
-
-static int init(struct ao *ao, char *params)
-{
-    // int rate, int channels, int format, int flags)
-    struct priv *p = talloc_zero(ao, struct priv);
-    ao->priv = p;
-
-    AudioStreamBasicDescription inDesc;
-    AudioComponentDescription desc;
-    AudioComponent comp;
-    AURenderCallbackStruct renderCallback;
-    OSStatus err;
-    UInt32 size, maxFrames, b_alive;
-    char *psz_name;
-    AudioDeviceID devid_def = 0;
-    int device_id, display_help = 0;
-
-    const opt_t subopts[] = {
-        {"device_id", OPT_ARG_INT, &device_id, NULL},
-        {"help", OPT_ARG_BOOL, &display_help, NULL},
-        {NULL}
+    *d = (struct priv_d) {
+        .muted = false,
+        .stream_asbd_changed = 0,
+        .hog_pid = -1,
+        .stream = 0,
+        .stream_idx = -1,
+        .changed_mixing = false,
     };
 
-    // set defaults
-    device_id = 0;
-
-    if (subopt_parse(ao_subdevice, subopts) != 0 || display_help) {
-        print_help();
-        if (!display_help)
-            return 0;
-    }
-
-    ca_msg(MSGT_AO, MSGL_V, "init([%dHz][%dch][%s][%d])\n",
-        ao->samplerate, ao->channels.num, af_fmt2str_short(ao->format), 0);
-
-    p->i_selected_dev = 0;
-    p->b_supports_digital = 0;
-    p->b_digital = 0;
-    p->b_muted = 0;
-    p->b_stream_format_changed = 0;
-    p->i_hog_pid = -1;
-    p->i_stream_id = 0;
-    p->i_stream_index = -1;
-    p->b_revert = 0;
-    p->b_changed_mixing = 0;
+    p->digital = d;
 
     ao->per_application_mixer = true;
     ao->no_persistent_volume  = true;
 
-    if (device_id == 0) {
-        /* Find the ID of the default Device. */
-        err = GetAudioProperty(kAudioObjectSystemObject,
-                               kAudioHardwarePropertyDefaultOutputDevice,
-                               sizeof(UInt32), &devid_def);
-        if (err != noErr) {
-            ca_msg(MSGT_AO, MSGL_WARN,
-                   "could not get default audio device: [%4.4s]\n",
-                   (char *)&err);
-            goto err_out;
-        }
+    AudioDeviceID selected_device = 0;
+    if (p->opt_device_id < 0) {
+        // device not set by user, get the default one
+        err = CA_GET(kAudioObjectSystemObject,
+                     kAudioHardwarePropertyDefaultOutputDevice,
+                     &selected_device);
+        CHECK_CA_ERROR("could not get default audio device");
     } else {
-        devid_def = device_id;
+        selected_device = p->opt_device_id;
     }
 
-    /* Retrieve the name of the device. */
-    err = GetAudioPropertyString(devid_def,
-                                 kAudioObjectPropertyName,
-                                 &psz_name);
-    if (err != noErr) {
-        ca_msg(MSGT_AO, MSGL_WARN,
-               "could not get default audio device name: [%4.4s]\n",
-               (char *)&err);
-        goto err_out;
-    }
+    char *device_name;
+    err = CA_GET_STR(selected_device, kAudioObjectPropertyName, &device_name);
+    CHECK_CA_ERROR("could not get selected audio device name");
 
-    ca_msg(MSGT_AO, MSGL_V,
-           "got audio output device ID: %" PRIu32 " Name: %s\n", devid_def,
-           psz_name);
+    ca_msg(MSGL_V,
+           "selected audio output device: %s (%" PRIu32 ")\n",
+           device_name, selected_device);
 
-    /* Probe whether device support S/PDIF stream output if input is AC3 stream. */
-    if (AF_FORMAT_IS_AC3(ao->format)) {
-        if (AudioDeviceSupportsDigital(devid_def))
-            p->b_supports_digital = 1;
-        ca_msg(MSGT_AO, MSGL_V,
-               "probe default audio output device about support for digital s/pdif output: %d\n",
-               p->b_supports_digital);
-    }
-
-    free(psz_name);
+    talloc_free(device_name);
 
     // Save selected device id
-    p->i_selected_dev = devid_def;
+    p->device = selected_device;
 
-    struct mp_chmap_sel chmap_sel = {0};
-    mp_chmap_sel_add_waveext(&chmap_sel);
-    if (!ao_chmap_sel_adjust(ao, &chmap_sel, &ao->channels))
-        goto err_out;
-
-    // Build Description for the input format
-    inDesc.mSampleRate = ao->samplerate;
-    inDesc.mFormatID =
-        p->b_supports_digital ? kAudioFormat60958AC3 : kAudioFormatLinearPCM;
-    inDesc.mChannelsPerFrame = ao->channels.num;
-    inDesc.mBitsPerChannel = af_fmt2bits(ao->format);
-
-    if ((ao->format & AF_FORMAT_POINT_MASK) == AF_FORMAT_F) {
-        // float
-        inDesc.mFormatFlags = kAudioFormatFlagIsFloat |
-                              kAudioFormatFlagIsPacked;
-    } else if ((ao->format & AF_FORMAT_SIGN_MASK) == AF_FORMAT_SI) {
-        // signed int
-        inDesc.mFormatFlags = kAudioFormatFlagIsSignedInteger |
-                              kAudioFormatFlagIsPacked;
-    } else {
-        // unsigned int
-        inDesc.mFormatFlags = kAudioFormatFlagIsPacked;
+    bool supports_digital = false;
+    /* Probe whether device support S/PDIF stream output if input is AC3 stream. */
+    if (AF_FORMAT_IS_AC3(ao->format)) {
+        if (ca_device_supports_digital(selected_device))
+            supports_digital = true;
     }
+
+    if (!supports_digital) {
+        AudioChannelLayout *layouts;
+        size_t n_layouts;
+        err = CA_GET_ARY_O(selected_device,
+                           kAudioDevicePropertyPreferredChannelLayout,
+                           &layouts, &n_layouts);
+        CHECK_CA_ERROR("could not get audio device prefered layouts");
+
+        uint32_t *bitmaps;
+        size_t   n_bitmaps;
+
+        ca_bitmaps_from_layouts(layouts, n_layouts, &bitmaps, &n_bitmaps);
+        talloc_free(layouts);
+
+        struct mp_chmap_sel chmap_sel = {0};
+
+        for (int i=0; i < n_bitmaps; i++) {
+            struct mp_chmap chmap = {0};
+            mp_chmap_from_lavc(&chmap, bitmaps[i]);
+            mp_chmap_sel_add_map(&chmap_sel, &chmap);
+        }
+
+        talloc_free(bitmaps);
+
+        if (ao->channels.num < 3 || n_bitmaps < 1)
+            // If the input is not surround or we could not get any usable
+            // bitmap from the hardware, default to waveext...
+            mp_chmap_sel_add_waveext(&chmap_sel);
+
+        if (!ao_chmap_sel_adjust(ao, &chmap_sel, &ao->channels))
+            goto coreaudio_error;
+
+    } // closes if (!supports_digital)
+
+    // Build ASBD for the input format
+    AudioStreamBasicDescription asbd;
+    asbd.mSampleRate       = ao->samplerate;
+    asbd.mFormatID         = supports_digital ?
+                             kAudioFormat60958AC3 : kAudioFormatLinearPCM;
+    asbd.mChannelsPerFrame = ao->channels.num;
+    asbd.mBitsPerChannel   = af_fmt2bits(ao->format);
+    asbd.mFormatFlags      = kAudioFormatFlagIsPacked;
+
+    if ((ao->format & AF_FORMAT_POINT_MASK) == AF_FORMAT_F)
+        asbd.mFormatFlags |= kAudioFormatFlagIsFloat;
+
+    if ((ao->format & AF_FORMAT_SIGN_MASK) == AF_FORMAT_SI)
+        asbd.mFormatFlags |= kAudioFormatFlagIsSignedInteger;
+
     if ((ao->format & AF_FORMAT_END_MASK) == AF_FORMAT_BE)
-        inDesc.mFormatFlags |= kAudioFormatFlagIsBigEndian;
+        asbd.mFormatFlags |= kAudioFormatFlagIsBigEndian;
 
-    inDesc.mFramesPerPacket = 1;
-    p->packetSize = inDesc.mBytesPerPacket = inDesc.mBytesPerFrame =
-                                                  inDesc.mFramesPerPacket *
-                                                  ao->channels.num *
-                                                  (inDesc.mBitsPerChannel / 8);
-    print_format(MSGL_V, "source:", &inDesc);
+    asbd.mFramesPerPacket = 1;
+    asbd.mBytesPerPacket = asbd.mBytesPerFrame =
+        asbd.mFramesPerPacket * asbd.mChannelsPerFrame *
+        (asbd.mBitsPerChannel / 8);
 
-    if (p->b_supports_digital) {
-        b_alive = 1;
-        err = GetAudioProperty(p->i_selected_dev,
-                               kAudioDevicePropertyDeviceIsAlive,
-                               sizeof(UInt32), &b_alive);
-        if (err != noErr)
-            ca_msg(MSGT_AO, MSGL_WARN,
-                   "could not check whether device is alive: [%4.4s]\n",
-                   (char *)&err);
-        if (!b_alive)
-            ca_msg(MSGT_AO, MSGL_WARN, "device is not alive\n");
+    ca_print_asbd("source format:", &asbd);
 
-        /* S/PDIF output need device in HogMode. */
-        err = GetAudioProperty(p->i_selected_dev,
-                               kAudioDevicePropertyHogMode,
-                               sizeof(pid_t), &p->i_hog_pid);
-        if (err != noErr) {
-            /* This is not a fatal error. Some drivers simply don't support this property. */
-            ca_msg(MSGT_AO, MSGL_WARN,
-                   "could not check whether device is hogged: [%4.4s]\n",
-                   (char *)&err);
-            p->i_hog_pid = -1;
-        }
+    if (supports_digital)
+        return init_digital(ao, asbd);
+    else
+        return init_lpcm(ao, asbd);
 
-        if (p->i_hog_pid != -1 && p->i_hog_pid != getpid()) {
-            ca_msg(MSGT_AO, MSGL_WARN,
-                   "Selected audio device is exclusively in use by another program.\n");
-            goto err_out;
-        }
-        p->stream_format = inDesc;
-        return OpenSPDIF(ao);
-    }
+coreaudio_error:
+    return CONTROL_ERROR;
+}
 
-    /* original analog output code */
-    desc.componentType = kAudioUnitType_Output;
-    desc.componentSubType =
-        (device_id ==
-         0) ? kAudioUnitSubType_DefaultOutput : kAudioUnitSubType_HALOutput;
-    desc.componentManufacturer = kAudioUnitManufacturer_Apple;
-    desc.componentFlags = 0;
-    desc.componentFlagsMask = 0;
+static int init_lpcm(struct ao *ao, AudioStreamBasicDescription asbd)
+{
+    OSStatus err;
+    uint32_t size;
+    struct priv *p = ao->priv;
 
-    comp = AudioComponentFindNext(NULL, &desc);      //Finds an component that meets the desc spec's
+    AudioComponentDescription desc = (AudioComponentDescription) {
+        .componentType         = kAudioUnitType_Output,
+        .componentSubType      = kAudioUnitSubType_HALOutput,
+        .componentManufacturer = kAudioUnitManufacturer_Apple,
+        .componentFlags        = 0,
+        .componentFlagsMask    = 0,
+    };
+
+    AudioComponent comp = AudioComponentFindNext(NULL, &desc);
     if (comp == NULL) {
-        ca_msg(MSGT_AO, MSGL_WARN, "Unable to find Output Unit component\n");
-        goto err_out;
+        ca_msg(MSGL_ERR, "unable to find audio component\n");
+        goto coreaudio_error;
     }
 
-    err = AudioComponentInstanceNew(comp, &(p->theOutputUnit));      //gains access to the services provided by the component
-    if (err) {
-        ca_msg(MSGT_AO, MSGL_WARN,
-               "Unable to open Output Unit component: [%4.4s]\n", (char *)&err);
-        goto err_out;
-    }
+    err = AudioComponentInstanceNew(comp, &(p->audio_unit));
+    CHECK_CA_ERROR("unable to open audio component");
 
     // Initialize AudioUnit
-    err = AudioUnitInitialize(p->theOutputUnit);
-    if (err) {
-        ca_msg(MSGT_AO, MSGL_WARN,
-               "Unable to initialize Output Unit component: [%4.4s]\n",
-               (char *)&err);
-        goto err_out1;
-    }
+    err = AudioUnitInitialize(p->audio_unit);
+    CHECK_CA_ERROR_L(coreaudio_error_component,
+                     "unable to initialize audio unit");
 
-    size =  sizeof(AudioStreamBasicDescription);
-    err = AudioUnitSetProperty(p->theOutputUnit,
+    size = sizeof(AudioStreamBasicDescription);
+    err = AudioUnitSetProperty(p->audio_unit,
                                kAudioUnitProperty_StreamFormat,
-                               kAudioUnitScope_Input, 0, &inDesc, size);
+                               kAudioUnitScope_Input, 0, &asbd, size);
 
-    if (err) {
-        ca_msg(MSGT_AO, MSGL_WARN, "Unable to set the input format: [%4.4s]\n",
-               (char *)&err);
-        goto err_out2;
-    }
-
-    size = sizeof(UInt32);
-    err = AudioUnitGetProperty(p->theOutputUnit,
-                               kAudioDevicePropertyBufferSize,
-                               kAudioUnitScope_Input, 0, &maxFrames, &size);
-
-    if (err) {
-        ca_msg(MSGT_AO, MSGL_WARN,
-               "AudioUnitGetProperty returned [%4.4s] when getting kAudioDevicePropertyBufferSize\n",
-               (char *)&err);
-        goto err_out2;
-    }
+    CHECK_CA_ERROR_L(coreaudio_error_audiounit,
+                     "unable to set the input format on the audio unit");
 
     //Set the Current Device to the Default Output Unit.
-    err = AudioUnitSetProperty(p->theOutputUnit,
+    err = AudioUnitSetProperty(p->audio_unit,
                                kAudioOutputUnitProperty_CurrentDevice,
-                               kAudioUnitScope_Global, 0, &p->i_selected_dev,
-                               sizeof(p->i_selected_dev));
+                               kAudioUnitScope_Global, 0, &p->device,
+                               sizeof(p->device));
+    CHECK_CA_ERROR_L(coreaudio_error_audiounit,
+                     "can't link audio unit to selected device");
 
-    ao->samplerate = inDesc.mSampleRate;
+    if (ao->channels.num > 2) {
+        // No need to set a channel layout for mono and stereo inputs
+        AudioChannelLayout acl = (AudioChannelLayout) {
+            .mChannelLayoutTag = kAudioChannelLayoutTag_UseChannelBitmap,
+            .mChannelBitmap    = mp_chmap_to_waveext(&ao->channels)
+        };
 
-    if (!ao_chmap_sel_get_def(ao, &chmap_sel, &ao->channels,
-                              inDesc.mChannelsPerFrame))
-        goto err_out2;
-
-    ao->bps        = ao->samplerate * inDesc.mBytesPerFrame;
-    p->buffer      = mp_ring_new(p, get_ring_size(ao));
-
-    print_buffer(p->buffer);
-
-    renderCallback.inputProc = theRenderProc;
-    renderCallback.inputProcRefCon = ao;
-    err = AudioUnitSetProperty(p->theOutputUnit,
-                               kAudioUnitProperty_SetRenderCallback,
-                               kAudioUnitScope_Input, 0, &renderCallback,
-                               sizeof(AURenderCallbackStruct));
-    if (err) {
-        ca_msg(MSGT_AO, MSGL_WARN,
-               "Unable to set the render callback: [%4.4s]\n", (char *)&err);
-        goto err_out2;
+        err = AudioUnitSetProperty(p->audio_unit,
+                                   kAudioUnitProperty_AudioChannelLayout,
+                                   kAudioUnitScope_Input, 0, &acl,
+                                   sizeof(AudioChannelLayout));
+        CHECK_CA_ERROR_L(coreaudio_error_audiounit,
+                         "can't set channel layout bitmap into audio unit");
     }
 
-    reset(ao);
+    p->buffer = mp_ring_new(p, get_ring_size(ao));
+    print_buffer(p->buffer);
 
+    AURenderCallbackStruct render_cb = (AURenderCallbackStruct) {
+        .inputProc       = render_cb_lpcm,
+        .inputProcRefCon = ao,
+    };
+
+    err = AudioUnitSetProperty(p->audio_unit,
+                               kAudioUnitProperty_SetRenderCallback,
+                               kAudioUnitScope_Input, 0, &render_cb,
+                               sizeof(AURenderCallbackStruct));
+
+    CHECK_CA_ERROR_L(coreaudio_error_audiounit,
+                     "unable to set render callback on audio unit");
+
+    reset(ao);
     return CONTROL_OK;
 
-err_out2:
-    AudioUnitUninitialize(p->theOutputUnit);
-err_out1:
-    AudioComponentInstanceDispose(p->theOutputUnit);
-err_out:
-    return CONTROL_FALSE;
+coreaudio_error_audiounit:
+    AudioUnitUninitialize(p->audio_unit);
+coreaudio_error_component:
+    AudioComponentInstanceDispose(p->audio_unit);
+coreaudio_error:
+    return CONTROL_ERROR;
 }
 
-/*****************************************************************************
-* Setup a encoded digital stream (SPDIF)
-*****************************************************************************/
-static int OpenSPDIF(struct ao *ao)
+static int init_digital(struct ao *ao, AudioStreamBasicDescription asbd)
 {
     struct priv *p = ao->priv;
+    struct priv_d *d = p->digital;
     OSStatus err = noErr;
-    UInt32 i_param_size, b_mix = 0;
-    Boolean b_writeable = 0;
-    AudioStreamID *p_streams = NULL;
-    int i, i_streams = 0;
-    AudioObjectPropertyAddress property_address;
 
-    /* Start doing the SPDIF setup process. */
-    p->b_digital = 1;
+    uint32_t is_alive = 1;
+    err = CA_GET(p->device, kAudioDevicePropertyDeviceIsAlive, &is_alive);
+    CHECK_CA_WARN("could not check whether device is alive");
 
-    /* Hog the device. */
-    p->i_hog_pid = getpid();
+    if (!is_alive)
+        ca_msg(MSGL_WARN, "device is not alive\n");
 
-    err = SetAudioProperty(p->i_selected_dev,
-                           kAudioDevicePropertyHogMode,
-                           sizeof(p->i_hog_pid), &p->i_hog_pid);
-    if (err != noErr) {
-        ca_msg(MSGT_AO, MSGL_WARN, "failed to set hogmode: [%4.4s]\n",
-               (char *)&err);
-        p->i_hog_pid = -1;
-        goto err_out;
-    }
+    p->is_digital = 1;
 
-    property_address.mSelector = kAudioDevicePropertySupportsMixing;
-    property_address.mScope    = kAudioObjectPropertyScopeGlobal;
-    property_address.mElement  = kAudioObjectPropertyElementMaster;
+    err = ca_lock_device(p->device, &d->hog_pid);
+    CHECK_CA_WARN("failed to set hogmode");
 
-    /* Set mixable to false if we are allowed to. */
-    if (AudioObjectHasProperty(p->i_selected_dev, &property_address)) {
-        /* Set mixable to false if we are allowed to. */
-        err = IsAudioPropertySettable(p->i_selected_dev,
-                                      kAudioDevicePropertySupportsMixing,
-                                      &b_writeable);
-        err = GetAudioProperty(p->i_selected_dev,
-                               kAudioDevicePropertySupportsMixing,
-                               sizeof(UInt32), &b_mix);
-        if (err == noErr && b_writeable) {
-            b_mix = 0;
-            err = SetAudioProperty(p->i_selected_dev,
-                                   kAudioDevicePropertySupportsMixing,
-                                   sizeof(UInt32), &b_mix);
-            p->b_changed_mixing = 1;
-        }
-        if (err != noErr) {
-            ca_msg(MSGT_AO, MSGL_WARN, "failed to set mixmode: [%4.4s]\n",
-                   (char *)&err);
-            goto err_out;
-        }
-    }
+    err = ca_disable_mixing(p->device, &d->changed_mixing);
+    CHECK_CA_WARN("failed to disable mixing");
+
+    AudioStreamID *streams;
+    size_t n_streams;
 
     /* Get a list of all the streams on this device. */
-    i_param_size = GetAudioPropertyArray(p->i_selected_dev,
-                                         kAudioDevicePropertyStreams,
-                                         kAudioDevicePropertyScopeOutput,
-                                         (void **)&p_streams);
+    err = CA_GET_ARY_O(p->device, kAudioDevicePropertyStreams,
+                       &streams, &n_streams);
 
-    if (!i_param_size) {
-        ca_msg(MSGT_AO, MSGL_WARN, "could not get number of streams.\n");
-        goto err_out;
-    }
+    CHECK_CA_ERROR("could not get number of streams");
 
-    i_streams = i_param_size / sizeof(AudioStreamID);
+    for (int i = 0; i < n_streams && d->stream_idx < 0; i++) {
+        bool digital = ca_stream_supports_digital(streams[i]);
 
-    ca_msg(MSGT_AO, MSGL_V, "current device stream number: %d\n", i_streams);
+        if (digital) {
+            err = CA_GET(streams[i], kAudioStreamPropertyPhysicalFormat,
+                         &d->original_asbd);
+            if (!CHECK_CA_WARN("could not get stream's physical format to "
+                               "revert to, getting the next one"))
+                continue;
 
-    for (i = 0; i < i_streams && p->i_stream_index < 0; ++i) {
-        /* Find a stream with a cac3 stream. */
-        AudioStreamRangedDescription *p_format_list = NULL;
-        int i_formats = 0, j = 0, b_digital = 0;
+            AudioStreamRangedDescription *formats;
+            size_t n_formats;
 
-        i_param_size = GetGlobalAudioPropertyArray(p_streams[i],
-                                                   kAudioStreamPropertyAvailablePhysicalFormats,
-                                                   (void **)&p_format_list);
+            err = CA_GET_ARY(streams[i],
+                             kAudioStreamPropertyAvailablePhysicalFormats,
+                             &formats, &n_formats);
 
-        if (!i_param_size) {
-            ca_msg(MSGT_AO, MSGL_WARN,
-                   "Could not get number of stream formats.\n");
-            continue;
-        }
+            if (!CHECK_CA_WARN("could not get number of stream formats"))
+                continue; // try next one
 
-        i_formats = i_param_size / sizeof(AudioStreamRangedDescription);
+            int req_rate_format = -1;
+            int max_rate_format = -1;
 
-        /* Check if one of the supported formats is a digital format. */
-        for (j = 0; j < i_formats; ++j) {
-            if (p_format_list[j].mFormat.mFormatID == 'IAC3' ||
-                p_format_list[j].mFormat.mFormatID == 'iac3' ||
-                p_format_list[j].mFormat.mFormatID == kAudioFormat60958AC3 ||
-                p_format_list[j].mFormat.mFormatID == kAudioFormatAC3) {
-                b_digital = 1;
-                break;
-            }
-        }
+            d->stream = streams[i];
+            d->stream_idx = i;
 
-        if (b_digital) {
-            /* If this stream supports a digital (cac3) format, then set it. */
-            int i_requested_rate_format = -1;
-            int i_current_rate_format = -1;
-            int i_backup_rate_format = -1;
-
-            p->i_stream_id = p_streams[i];
-            p->i_stream_index = i;
-
-            if (p->b_revert == 0) {
-                /* Retrieve the original format of this stream first if not done so already. */
-                err = GetAudioProperty(p->i_stream_id,
-                                       kAudioStreamPropertyPhysicalFormat,
-                                       sizeof(p->sfmt_revert),
-                                       &p->sfmt_revert);
-                if (err != noErr) {
-                    ca_msg(MSGT_AO, MSGL_WARN,
-                           "Could not retrieve the original stream format: [%4.4s]\n",
-                           (char *)&err);
-                    free(p_format_list);
-                    continue;
-                }
-                p->b_revert = 1;
-            }
-
-            for (j = 0; j < i_formats; ++j)
-                if (p_format_list[j].mFormat.mFormatID == 'IAC3' ||
-                    p_format_list[j].mFormat.mFormatID == 'iac3' ||
-                    p_format_list[j].mFormat.mFormatID ==
-                    kAudioFormat60958AC3 ||
-                    p_format_list[j].mFormat.mFormatID == kAudioFormatAC3) {
-                    if (p_format_list[j].mFormat.mSampleRate ==
-                        p->stream_format.mSampleRate) {
-                        i_requested_rate_format = j;
+            for (int j = 0; j < n_formats; j++)
+                if (ca_format_is_digital(formats[j].mFormat)) {
+                    // select the digital format that has exactly the same
+                    // samplerate. If an exact match cannot be found, select
+                    // the format with highest samplerate as backup.
+                    if (formats[j].mFormat.mSampleRate == asbd.mSampleRate) {
+                        req_rate_format = j;
                         break;
-                    }
-                    if (p_format_list[j].mFormat.mSampleRate ==
-                        p->sfmt_revert.mSampleRate)
-                        i_current_rate_format = j;
-                    else if (i_backup_rate_format < 0 ||
-                             p_format_list[j].mFormat.mSampleRate >
-                             p_format_list[i_backup_rate_format].mFormat.
-                             mSampleRate)
-                        i_backup_rate_format = j;
+                    } else if (max_rate_format < 0 ||
+                        formats[j].mFormat.mSampleRate >
+                        formats[max_rate_format].mFormat.mSampleRate)
+                        max_rate_format = j;
                 }
 
-            if (i_requested_rate_format >= 0) /* We prefer to output at the samplerate of the original audio. */
-                p->stream_format =
-                    p_format_list[i_requested_rate_format].mFormat;
-            else if (i_current_rate_format >= 0) /* If not possible, we will try to use the current samplerate of the device. */
-                p->stream_format =
-                    p_format_list[i_current_rate_format].mFormat;
+            if (req_rate_format >= 0)
+                d->stream_asbd = formats[req_rate_format].mFormat;
             else
-                p->stream_format = p_format_list[i_backup_rate_format].mFormat;
-            /* And if we have to, any digital format will be just fine (highest rate possible). */
+                d->stream_asbd = formats[max_rate_format].mFormat;
+
+            talloc_free(formats);
         }
-        free(p_format_list);
-    }
-    free(p_streams);
-
-    if (p->i_stream_index < 0) {
-        ca_msg(MSGT_AO, MSGL_WARN,
-               "Cannot find any digital output stream format when OpenSPDIF().\n");
-        goto err_out;
     }
 
-    print_format(MSGL_V, "original stream format:", &p->sfmt_revert);
+    talloc_free(streams);
 
-    if (!AudioStreamChangeFormat(p->i_stream_id, p->stream_format))
-        goto err_out;
+    if (d->stream_idx < 0) {
+        ca_msg(MSGL_WARN, "can't find any digital output stream format\n");
+        goto coreaudio_error;
+    }
 
-    property_address.mSelector = kAudioDevicePropertyDeviceHasChanged;
-    property_address.mScope    = kAudioObjectPropertyScopeGlobal;
-    property_address.mElement  = kAudioObjectPropertyElementMaster;
+    if (!ca_change_format(d->stream, d->stream_asbd))
+        goto coreaudio_error;
 
-    err = AudioObjectAddPropertyListener(p->i_selected_dev,
-                                         &property_address,
-                                         DeviceListener,
-                                         NULL);
-    if (err != noErr)
-        ca_msg(MSGT_AO, MSGL_WARN,
-               "AudioDeviceAddPropertyListener for kAudioDevicePropertyDeviceHasChanged failed: [%4.4s]\n",
-               (char *)&err);
+    void *changed = (void *) &(d->stream_asbd_changed);
+    err = ca_enable_device_listener(p->device, changed);
+    CHECK_CA_ERROR("cannot install format change listener during init");
 
-
-    /* FIXME: If output stream is not native byte-order, we need change endian somewhere. */
-    /*        Although there's no such case reported.                                     */
 #if BYTE_ORDER == BIG_ENDIAN
-    if (!(p->stream_format.mFormatFlags & kAudioFormatFlagIsBigEndian))
+    if (!(p->stream_asdb.mFormatFlags & kAudioFormatFlagIsBigEndian))
 #else
     /* tell mplayer that we need a byteswap on AC3 streams, */
-    if (p->stream_format.mFormatID & kAudioFormat60958AC3)
+    if (d->stream_asbd.mFormatID & kAudioFormat60958AC3)
         ao->format = AF_FORMAT_AC3_LE;
-
-    if (p->stream_format.mFormatFlags & kAudioFormatFlagIsBigEndian)
+    else if (d->stream_asbd.mFormatFlags & kAudioFormatFlagIsBigEndian)
 #endif
-        ca_msg(MSGT_AO, MSGL_WARN,
-               "Output stream has non-native byte order, digital output may fail.\n");
+        ca_msg(MSGL_WARN,
+               "stream has non-native byte order, digital output may fail\n");
 
-
-    ao->samplerate = p->stream_format.mSampleRate;
-    mp_chmap_from_channels(&ao->channels, p->stream_format.mChannelsPerFrame);
+    ao->samplerate = d->stream_asbd.mSampleRate;
     ao->bps = ao->samplerate *
-                  (p->stream_format.mBytesPerPacket /
-                   p->stream_format.mFramesPerPacket);
+                  (d->stream_asbd.mBytesPerPacket /
+                   d->stream_asbd.mFramesPerPacket);
 
-    p->buffer      = mp_ring_new(p, get_ring_size(ao));
-
+    p->buffer = mp_ring_new(p, get_ring_size(ao));
     print_buffer(p->buffer);
 
-    /* Create IOProc callback. */
-    err = AudioDeviceCreateIOProcID(p->i_selected_dev,
-                                    (AudioDeviceIOProc)RenderCallbackSPDIF,
+    err = AudioDeviceCreateIOProcID(p->device,
+                                    (AudioDeviceIOProc)render_cb_digital,
                                     (void *)ao,
-                                    &p->renderCallback);
+                                    &d->render_cb);
 
-    if (err != noErr || p->renderCallback == NULL) {
-        ca_msg(MSGT_AO, MSGL_WARN, "AudioDeviceAddIOProc failed: [%4.4s]\n",
-               (char *)&err);
-        goto err_out1;
-    }
+    CHECK_CA_ERROR("failed to register digital render callback");
 
     reset(ao);
 
     return CONTROL_TRUE;
 
-err_out1:
-    if (p->b_revert)
-        AudioStreamChangeFormat(p->i_stream_id, p->sfmt_revert);
-err_out:
-    if (p->b_changed_mixing && p->sfmt_revert.mFormatID !=
-        kAudioFormat60958AC3) {
-        int b_mix = 1;
-        err = SetAudioProperty(p->i_selected_dev,
-                               kAudioDevicePropertySupportsMixing,
-                               sizeof(int), &b_mix);
-        if (err != noErr)
-            ca_msg(MSGT_AO, MSGL_WARN, "failed to set mixmode: [%4.4s]\n",
-                   (char *)&err);
-    }
-    if (p->i_hog_pid == getpid()) {
-        p->i_hog_pid = -1;
-        err = SetAudioProperty(p->i_selected_dev,
-                               kAudioDevicePropertyHogMode,
-                               sizeof(p->i_hog_pid), &p->i_hog_pid);
-        if (err != noErr)
-            ca_msg(MSGT_AO, MSGL_WARN, "Could not release hogmode: [%4.4s]\n",
-                   (char *)&err);
-    }
-    return CONTROL_FALSE;
+coreaudio_error:
+    err = ca_unlock_device(p->device, &d->hog_pid);
+    CHECK_CA_WARN("can't release hog mode");
+    return CONTROL_ERROR;
 }
-
-/*****************************************************************************
-* AudioDeviceSupportsDigital: Check i_dev_id for digital stream support.
-*****************************************************************************/
-static int AudioDeviceSupportsDigital(AudioDeviceID i_dev_id)
-{
-    UInt32 i_param_size = 0;
-    AudioStreamID *p_streams = NULL;
-    int i = 0, i_streams = 0;
-    int b_return = CONTROL_FALSE;
-
-    /* Retrieve all the output streams. */
-    i_param_size = GetAudioPropertyArray(i_dev_id,
-                                         kAudioDevicePropertyStreams,
-                                         kAudioDevicePropertyScopeOutput,
-                                         (void **)&p_streams);
-
-    if (!i_param_size) {
-        ca_msg(MSGT_AO, MSGL_WARN, "could not get number of streams.\n");
-        return CONTROL_FALSE;
-    }
-
-    i_streams = i_param_size / sizeof(AudioStreamID);
-
-    for (i = 0; i < i_streams; ++i) {
-        if (AudioStreamSupportsDigital(p_streams[i]))
-            b_return = CONTROL_OK;
-    }
-
-    free(p_streams);
-    return b_return;
-}
-
-/*****************************************************************************
-* AudioStreamSupportsDigital: Check i_stream_id for digital stream support.
-*****************************************************************************/
-static int AudioStreamSupportsDigital(AudioStreamID i_stream_id)
-{
-    UInt32 i_param_size;
-    AudioStreamRangedDescription *p_format_list = NULL;
-    int i, i_formats, b_return = CONTROL_FALSE;
-
-    /* Retrieve all the stream formats supported by each output stream. */
-    i_param_size = GetGlobalAudioPropertyArray(i_stream_id,
-                                               kAudioStreamPropertyAvailablePhysicalFormats,
-                                               (void **)&p_format_list);
-
-    if (!i_param_size) {
-        ca_msg(MSGT_AO, MSGL_WARN, "Could not get number of stream formats.\n");
-        return CONTROL_FALSE;
-    }
-
-    i_formats = i_param_size / sizeof(AudioStreamRangedDescription);
-
-    for (i = 0; i < i_formats; ++i) {
-        print_format(MSGL_V, "supported format:", &(p_format_list[i].mFormat));
-
-        if (p_format_list[i].mFormat.mFormatID == 'IAC3' ||
-            p_format_list[i].mFormat.mFormatID == 'iac3' ||
-            p_format_list[i].mFormat.mFormatID == kAudioFormat60958AC3 ||
-            p_format_list[i].mFormat.mFormatID == kAudioFormatAC3)
-            b_return = CONTROL_OK;
-    }
-
-    free(p_format_list);
-    return b_return;
-}
-
-/*****************************************************************************
-* AudioStreamChangeFormat: Change i_stream_id to change_format
-*****************************************************************************/
-static int AudioStreamChangeFormat(AudioStreamID i_stream_id,
-                                   AudioStreamBasicDescription change_format)
-{
-    OSStatus err = noErr;
-    int i;
-    AudioObjectPropertyAddress property_address;
-
-    static volatile int stream_format_changed;
-    stream_format_changed = 0;
-
-    print_format(MSGL_V, "setting stream format:", &change_format);
-
-    /* Install the callback. */
-    property_address.mSelector = kAudioStreamPropertyPhysicalFormat;
-    property_address.mScope    = kAudioObjectPropertyScopeGlobal;
-    property_address.mElement  = kAudioObjectPropertyElementMaster;
-
-    err = AudioObjectAddPropertyListener(i_stream_id,
-                                         &property_address,
-                                         StreamListener,
-                                         (void *)&stream_format_changed);
-    if (err != noErr) {
-        ca_msg(MSGT_AO, MSGL_WARN,
-               "AudioStreamAddPropertyListener failed: [%4.4s]\n",
-               (char *)&err);
-        return CONTROL_FALSE;
-    }
-
-    /* Change the format. */
-    err = SetAudioProperty(i_stream_id,
-                           kAudioStreamPropertyPhysicalFormat,
-                           sizeof(AudioStreamBasicDescription), &change_format);
-    if (err != noErr) {
-        ca_msg(MSGT_AO, MSGL_WARN, "could not set the stream format: [%4.4s]\n",
-               (char *)&err);
-        return CONTROL_FALSE;
-    }
-
-    /* The AudioStreamSetProperty is not only asynchronious,
-     * it is also not Atomic, in its behaviour.
-     * Therefore we check 5 times before we really give up.
-     * FIXME: failing isn't actually implemented yet. */
-    for (i = 0; i < 5; ++i) {
-        AudioStreamBasicDescription actual_format;
-        int j;
-        for (j = 0; !stream_format_changed && j < 50; ++j)
-            mp_sleep_us(10000);
-        if (stream_format_changed)
-            stream_format_changed = 0;
-        else
-            ca_msg(MSGT_AO, MSGL_V, "reached timeout\n");
-
-        err = GetAudioProperty(i_stream_id,
-                               kAudioStreamPropertyPhysicalFormat,
-                               sizeof(AudioStreamBasicDescription),
-                               &actual_format);
-
-        print_format(MSGL_V, "actual format in use:", &actual_format);
-        if (actual_format.mSampleRate == change_format.mSampleRate &&
-            actual_format.mFormatID == change_format.mFormatID &&
-            actual_format.mFramesPerPacket == change_format.mFramesPerPacket) {
-            /* The right format is now active. */
-            break;
-        }
-        /* We need to check again. */
-    }
-
-    /* Removing the property listener. */
-    err = AudioObjectRemovePropertyListener(i_stream_id,
-                                            &property_address,
-                                            StreamListener,
-                                            (void *)&stream_format_changed);
-    if (err != noErr) {
-        ca_msg(MSGT_AO, MSGL_WARN,
-               "AudioStreamRemovePropertyListener failed: [%4.4s]\n",
-               (char *)&err);
-        return CONTROL_FALSE;
-    }
-
-    return CONTROL_TRUE;
-}
-
-/*****************************************************************************
-* RenderCallbackSPDIF: callback for SPDIF audio output
-*****************************************************************************/
-static OSStatus RenderCallbackSPDIF(AudioDeviceID inDevice,
-                                    const AudioTimeStamp *inNow,
-                                    const void *inInputData,
-                                    const AudioTimeStamp *inInputTime,
-                                    AudioBufferList *outOutputData,
-                                    const AudioTimeStamp *inOutputTime,
-                                    void *threadGlobals)
-{
-    struct ao *ao  = threadGlobals;
-    struct priv *p = ao->priv;
-    int amt = mp_ring_buffered(p->buffer);
-    AudioBuffer ca_buffer = outOutputData->mBuffers[p->i_stream_index];
-    int req = ca_buffer.mDataByteSize;
-
-    if (amt > req)
-        amt = req;
-    if (amt) {
-        if (p->b_muted) {
-            mp_ring_read(p->buffer, NULL, amt);
-        } else {
-            mp_ring_read(p->buffer, (unsigned char *)ca_buffer.mData, amt);
-        }
-    }
-
-    return noErr;
-}
-
 
 static int play(struct ao *ao, void *output_samples, int num_bytes, int flags)
 {
-    struct priv *p = ao->priv;
-    int wrote, b_digital;
+    struct priv *p   = ao->priv;
+    struct priv_d *d = p->digital;
 
     // Check whether we need to reset the digital output stream.
-    if (p->b_digital && p->b_stream_format_changed) {
-        p->b_stream_format_changed = 0;
-        b_digital = AudioStreamSupportsDigital(p->i_stream_id);
-        if (b_digital) {
-            /* Current stream supports digital format output, let's set it. */
-            ca_msg(MSGT_AO, MSGL_V,
-                   "Detected current stream supports digital, try to restore digital output...\n");
-
-            if (!AudioStreamChangeFormat(p->i_stream_id, p->stream_format))
-                ca_msg(MSGT_AO, MSGL_WARN,
-                       "Restoring digital output failed.\n");
-            else {
-                ca_msg(MSGT_AO, MSGL_WARN,
-                       "Restoring digital output succeeded.\n");
+    if (p->is_digital && d->stream_asbd_changed) {
+        d->stream_asbd_changed = 0;
+        if (ca_stream_supports_digital(d->stream)) {
+            if (!ca_change_format(d->stream, d->stream_asbd)) {
+                ca_msg(MSGL_WARN, "can't restore digital output\n");
+            } else {
+                ca_msg(MSGL_WARN, "restoring digital output succeeded.\n");
                 reset(ao);
             }
-        } else
-            ca_msg(MSGT_AO, MSGL_V,
-                   "Detected current stream does not support digital.\n");
+        }
     }
 
-    wrote = mp_ring_write(p->buffer, output_samples, num_bytes);
+    int wrote = mp_ring_write(p->buffer, output_samples, num_bytes);
     audio_resume(ao);
 
     return wrote;
 }
 
-/* set variables and buffer to initial state */
 static void reset(struct ao *ao)
 {
     struct priv *p = ao->priv;
@@ -1129,19 +596,16 @@ static void reset(struct ao *ao)
     mp_ring_reset(p->buffer);
 }
 
-
-/* return available space */
 static int get_space(struct ao *ao)
 {
     struct priv *p = ao->priv;
     return mp_ring_available(p->buffer);
 }
 
-
-/* return delay until audio is played */
 static float get_delay(struct ao *ao)
 {
-    // inaccurate, should also contain the data buffered e.g. by the OS
+    // FIXME: should also report the delay of coreaudio itself (hardware +
+    // internal buffers)
     struct priv *p = ao->priv;
     return mp_ring_buffered(p->buffer) / (float)ao->bps;
 }
@@ -1151,91 +615,57 @@ static void uninit(struct ao *ao, bool immed)
     struct priv *p = ao->priv;
     OSStatus err = noErr;
 
-    if (!immed) {
-        long long timeleft =
-            (1000000LL * mp_ring_buffered(p->buffer)) / ao->bps;
-        ca_msg(MSGT_AO, MSGL_DBG2, "%d bytes left @%d bps (%d usec)\n",
-                mp_ring_buffered(p->buffer), ao->bps, (int)timeleft);
-        mp_sleep_us((int)timeleft);
-    }
+    if (!immed)
+        mp_sleep_us(get_delay(ao) * 1000000);
 
-    if (!p->b_digital) {
-        AudioOutputUnitStop(p->theOutputUnit);
-        AudioUnitUninitialize(p->theOutputUnit);
-        AudioComponentInstanceDispose(p->theOutputUnit);
+    if (!p->is_digital) {
+        AudioOutputUnitStop(p->audio_unit);
+        AudioUnitUninitialize(p->audio_unit);
+        AudioComponentInstanceDispose(p->audio_unit);
     } else {
-        /* Stop device. */
-        err = AudioDeviceStop(p->i_selected_dev, p->renderCallback);
-        if (err != noErr)
-            ca_msg(MSGT_AO, MSGL_WARN, "AudioDeviceStop failed: [%4.4s]\n",
-                   (char *)&err);
+        struct priv_d *d = p->digital;
 
-        /* Remove IOProc callback. */
-        err =
-            AudioDeviceDestroyIOProcID(p->i_selected_dev, p->renderCallback);
-        if (err != noErr)
-            ca_msg(MSGT_AO, MSGL_WARN,
-                   "AudioDeviceRemoveIOProc failed: [%4.4s]\n", (char *)&err);
+        void *changed = (void *) &(d->stream_asbd_changed);
+        err = ca_disable_device_listener(p->device, changed);
+        CHECK_CA_WARN("can't remove device listener, this may cause a crash");
 
-        if (p->b_revert)
-            AudioStreamChangeFormat(p->i_stream_id, p->sfmt_revert);
+        err = AudioDeviceStop(p->device, d->render_cb);
+        CHECK_CA_WARN("failed to stop audio device");
 
-        if (p->b_changed_mixing && p->sfmt_revert.mFormatID !=
-            kAudioFormat60958AC3) {
-            UInt32 b_mix;
-            Boolean b_writeable = 0;
-            /* Revert mixable to true if we are allowed to. */
-            err = IsAudioPropertySettable(p->i_selected_dev,
-                                          kAudioDevicePropertySupportsMixing,
-                                          &b_writeable);
-            err = GetAudioProperty(p->i_selected_dev,
-                                   kAudioDevicePropertySupportsMixing,
-                                   sizeof(UInt32), &b_mix);
-            if (err == noErr && b_writeable) {
-                b_mix = 1;
-                err = SetAudioProperty(p->i_selected_dev,
-                                       kAudioDevicePropertySupportsMixing,
-                                       sizeof(UInt32), &b_mix);
-            }
-            if (err != noErr)
-                ca_msg(MSGT_AO, MSGL_WARN, "failed to set mixmode: [%4.4s]\n",
-                       (char *)&err);
-        }
-        if (p->i_hog_pid == getpid()) {
-            p->i_hog_pid = -1;
-            err = SetAudioProperty(p->i_selected_dev,
-                                   kAudioDevicePropertyHogMode,
-                                   sizeof(p->i_hog_pid), &p->i_hog_pid);
-            if (err != noErr)
-                ca_msg(MSGT_AO, MSGL_WARN,
-                       "Could not release hogmode: [%4.4s]\n", (char *)&err);
-        }
+        err = AudioDeviceDestroyIOProcID(p->device, d->render_cb);
+        CHECK_CA_WARN("failed to remove device render callback");
+
+        if (!ca_change_format(d->stream, d->original_asbd))
+            ca_msg(MSGL_WARN, "can't revert to original device format");
+
+        err = ca_enable_mixing(p->device, d->changed_mixing);
+        CHECK_CA_WARN("can't re-enable mixing");
+
+        err = ca_unlock_device(p->device, &d->hog_pid);
+        CHECK_CA_WARN("can't release hog mode");
     }
 }
 
-/* stop playing, keep buffers (for pause) */
 static void audio_pause(struct ao *ao)
 {
     struct priv *p = ao->priv;
     OSErr err = noErr;
 
-    /* Stop callback. */
-    if (!p->b_digital) {
-        err = AudioOutputUnitStop(p->theOutputUnit);
-        if (err != noErr)
-            ca_msg(MSGT_AO, MSGL_WARN, "AudioOutputUnitStop returned [%4.4s]\n",
-                   (char *)&err);
+    if (p->paused)
+        return;
+
+    if (!p->is_digital) {
+        err = AudioOutputUnitStop(p->audio_unit);
+        CHECK_CA_WARN("can't stop audio unit");
     } else {
-        err = AudioDeviceStop(p->i_selected_dev, p->renderCallback);
-        if (err != noErr)
-            ca_msg(MSGT_AO, MSGL_WARN, "AudioDeviceStop failed: [%4.4s]\n",
-                   (char *)&err);
+        struct priv_d *d = p->digital;
+        err = AudioDeviceStop(p->device, d->render_cb);
+        CHECK_CA_WARN("can't stop digital device");
     }
-    p->paused = 1;
+
+    p->paused = true;
 }
 
-
-/* resume playing, after audio_pause() */
 static void audio_resume(struct ao *ao)
 {
     struct priv *p = ao->priv;
@@ -1244,63 +674,23 @@ static void audio_resume(struct ao *ao)
     if (!p->paused)
         return;
 
-    /* Start callback. */
-    if (!p->b_digital) {
-        err = AudioOutputUnitStart(p->theOutputUnit);
-        if (err != noErr)
-            ca_msg(MSGT_AO, MSGL_WARN,
-                   "AudioOutputUnitStart returned [%4.4s]\n", (char *)&err);
+    if (!p->is_digital) {
+        err = AudioOutputUnitStart(p->audio_unit);
+        CHECK_CA_WARN("can't start audio unit");
     } else {
-        err = AudioDeviceStart(p->i_selected_dev, p->renderCallback);
-        if (err != noErr)
-            ca_msg(MSGT_AO, MSGL_WARN, "AudioDeviceStart failed: [%4.4s]\n",
-                   (char *)&err);
+        struct priv_d *d = p->digital;
+        err = AudioDeviceStart(p->device, d->render_cb);
+        CHECK_CA_WARN("can't start digital device");
     }
-    p->paused = 0;
+
+    p->paused = false;
 }
 
-/*****************************************************************************
-* StreamListener
-*****************************************************************************/
-static OSStatus StreamListener(AudioObjectID inObjectID,
-                               UInt32 inNumberAddresses,
-                               const AudioObjectPropertyAddress inAddresses[],
-                               void *inClientData)
-{
-    for (int i = 0; i < inNumberAddresses; ++i) {
-        if (inAddresses[i].mSelector == kAudioStreamPropertyPhysicalFormat) {
-            ca_msg(MSGT_AO, MSGL_WARN,
-                   "got notify kAudioStreamPropertyPhysicalFormat changed.\n");
-            if (inClientData)
-                *(volatile int *)inClientData = 1;
-            break;
-        }
-    }
-    return noErr;
-}
-
-static OSStatus DeviceListener(AudioObjectID inObjectID,
-                               UInt32 inNumberAddresses,
-                               const AudioObjectPropertyAddress inAddresses[],
-                               void *inClientData)
-{
-    struct ao *ao  = inClientData;
-    struct priv *p = ao->priv;
-
-    for (int i = 0; i < inNumberAddresses; ++i) {
-        if (inAddresses[i].mSelector == kAudioDevicePropertyDeviceHasChanged) {
-            ca_msg(MSGT_AO, MSGL_WARN,
-                   "got notify kAudioDevicePropertyDeviceHasChanged.\n");
-            p->b_stream_format_changed = 1;
-            break;
-        }
-    }
-    return noErr;
-}
+#define OPT_BASE_STRUCT struct priv
 
 const struct ao_driver audio_out_coreaudio = {
     .info = &(const struct ao_info) {
-        "CoreAudio (Native OS X Audio Output)",
+        "CoreAudio (OS X Audio Output)",
         "coreaudio",
         "Timothy J. Wood, Dan Christiansen, Chris Roccati & Stefano Pigozzi",
         "",
@@ -1314,4 +704,10 @@ const struct ao_driver audio_out_coreaudio = {
     .reset     = reset,
     .pause     = audio_pause,
     .resume    = audio_resume,
+    .priv_size = sizeof(struct priv),
+    .options = (const struct m_option[]) {
+        OPT_INT("device_id", opt_device_id, 0, OPTDEF_INT(-1)),
+        OPT_FLAG("list", opt_list, 0),
+        {0}
+    },
 };

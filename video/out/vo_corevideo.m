@@ -27,7 +27,7 @@
 #import "talloc.h"
 #import "vo.h"
 #import "sub/sub.h"
-#import "core/subopt-helper.h"
+#import "core/m_option.h"
 
 #import "video/csputils.h"
 #import "video/vfcap.h"
@@ -263,7 +263,7 @@ static void uninit(struct vo *vo)
 }
 
 
-static int preinit(struct vo *vo, const char *arg)
+static int preinit(struct vo *vo)
 {
     struct priv *p = vo->priv;
 

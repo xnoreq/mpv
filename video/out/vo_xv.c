@@ -53,7 +53,7 @@
 #include "sub/sub.h"
 #include "sub/draw_bmp.h"
 #include "video/csputils.h"
-#include "core/subopt-helper.h"
+#include "core/m_option.h"
 #include "osdep/timer.h"
 
 static const vo_info_t info = {
@@ -722,7 +722,7 @@ static void uninit(struct vo *vo)
     vo_x11_uninit(vo);
 }
 
-static int preinit(struct vo *vo, const char *arg)
+static int preinit(struct vo *vo)
 {
     XvPortID xv_p;
     int busy_ports = 0;
