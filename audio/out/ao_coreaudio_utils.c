@@ -22,9 +22,10 @@
  * on CoreAudio but not the AUHAL (such as using AudioQueue services).
  */
 
+#include "audio/format.h"
+#include "osdep/timer.h"
 #include "audio/out/ao_coreaudio_utils.h"
 #include "audio/out/ao_coreaudio_properties.h"
-#include "osdep/timer.h"
 
 char *fourcc_repr(void *talloc_ctx, uint32_t code)
 {
@@ -63,18 +64,18 @@ bool check_ca_st(struct ao *ao, int level, OSStatus code, const char *message)
     return false;
 }
 
-void ca_print_asbd(struct ao *ao, const char *description,
-                   const AudioStreamBasicDescription *asbd)
+char *ca_asbd_repr(const AudioStreamBasicDescription *asbd)
 {
+    char *result    = talloc_strdup(NULL, "");
+    char *format    = fourcc_repr(result, asbd->mFormatID);
     uint32_t flags  = asbd->mFormatFlags;
-    char *format    = fourcc_repr(NULL, asbd->mFormatID);
 
-    MP_VERBOSE(ao,
-       "%s %7.1fHz %" PRIu32 "bit [%s]"
+    result = talloc_asprintf_append(result,
+       "%7.1fHz %" PRIu32 "bit [%s]"
        "[%" PRIu32 "][%" PRIu32 "][%" PRIu32 "]"
        "[%" PRIu32 "][%" PRIu32 "] "
        "%s %s %s%s%s%s\n",
-       description, asbd->mSampleRate, asbd->mBitsPerChannel, format,
+       asbd->mSampleRate, asbd->mBitsPerChannel, format,
        asbd->mFormatFlags, asbd->mBytesPerPacket, asbd->mFramesPerPacket,
        asbd->mBytesPerFrame, asbd->mChannelsPerFrame,
        (flags & kAudioFormatFlagIsFloat) ? "float" : "int",
@@ -84,10 +85,105 @@ void ca_print_asbd(struct ao *ao, const char *description,
        (flags & kAudioFormatFlagIsAlignedHigh) ? " aligned" : "",
        (flags & kAudioFormatFlagIsNonInterleaved) ? " P" : "");
 
-    talloc_free(format);
+    return result;
 }
 
-bool ca_format_is_digital(AudioStreamBasicDescription asbd)
+void ca_print_asbd(struct ao *ao, const char *description,
+                   const AudioStreamBasicDescription *asbd)
+{
+    char *repr = ca_asbd_repr(asbd);
+    MP_VERBOSE(ao, "%s %s", description, repr);
+    talloc_free(repr);
+}
+
+void ca_print_device_list(struct ao *ao)
+{
+    char *help = talloc_strdup(NULL, "Available output devices:\n");
+
+    AudioDeviceID *devs;
+    size_t n_devs;
+
+    OSStatus err =
+        CA_GET_ARY(kAudioObjectSystemObject, kAudioHardwarePropertyDevices,
+                   &devs, &n_devs);
+    talloc_steal(help, devs);
+
+    CHECK_CA_ERROR("Failed to get list of output devices.");
+
+    for (int i = 0; i < n_devs; i++) {
+        char *name;
+        OSStatus err = CA_GET_STR(devs[i], kAudioObjectPropertyName, &name);
+
+        if (err == noErr)
+            talloc_steal(devs, name);
+        else
+            name = "Unknown";
+
+        help = talloc_asprintf_append(
+                help, "  * %s (id: %" PRIu32 ")\n", name, devs[i]);
+
+
+        AudioStreamID *streams = NULL;
+        size_t n_streams;
+        err = CA_GET_ARY_O(devs[i], kAudioDevicePropertyStreams,
+                           &streams, &n_streams);
+        talloc_steal(devs, streams);
+
+        CHECK_CA_ERROR("could not get streams.");
+
+        for (int j = 0; j < n_streams; j++) {
+            AudioStreamRangedDescription *formats;
+            size_t n_formats;
+            err = CA_GET_ARY(streams[j],
+                             kAudioStreamPropertyAvailablePhysicalFormats,
+                             &formats, &n_formats);
+            talloc_steal(streams, formats);
+
+            if (!CHECK_CA_WARN("could not get stream formats"))
+                continue; // try next one
+
+            for (int k = 0; k < n_formats; k++) {
+                char *repr = ca_asbd_repr(&formats[k].mFormat);
+                help = talloc_asprintf_append(help,
+                    "    - Stream %d, Format %d: %s", j, k, repr);
+                talloc_free(repr);
+            }
+        }
+    }
+
+coreaudio_error:
+    MP_INFO(ao, "%s", help);
+    talloc_free(help);
+}
+
+AudioStreamBasicDescription ca_make_asbd(int mp_format, int rate, int channels)
+{
+    AudioStreamBasicDescription asbd = (AudioStreamBasicDescription) {
+        .mSampleRate       = rate,
+        .mFormatID         = kAudioFormatLinearPCM,
+        .mChannelsPerFrame = channels,
+        .mBitsPerChannel   = af_fmt2bits(mp_format),
+        .mFormatFlags      = kAudioFormatFlagIsPacked,
+    };
+
+    if ((mp_format & AF_FORMAT_POINT_MASK) == AF_FORMAT_F)
+        asbd.mFormatFlags |= kAudioFormatFlagIsFloat;
+
+    if ((mp_format & AF_FORMAT_SIGN_MASK) == AF_FORMAT_SI)
+        asbd.mFormatFlags |= kAudioFormatFlagIsSignedInteger;
+
+    if ((mp_format & AF_FORMAT_END_MASK) == AF_FORMAT_BE)
+        asbd.mFormatFlags |= kAudioFormatFlagIsBigEndian;
+
+    asbd.mFramesPerPacket = 1;
+    asbd.mBytesPerPacket = asbd.mBytesPerFrame =
+        asbd.mFramesPerPacket * asbd.mChannelsPerFrame *
+        (asbd.mBitsPerChannel / 8);
+
+    return asbd;
+}
+
+bool ca_format_is_compressed(AudioStreamBasicDescription asbd)
 {
     switch (asbd.mFormatID)
     case 'IAC3':
@@ -112,7 +208,7 @@ bool ca_stream_supports_digital(struct ao *ao, AudioStreamID stream)
     for (int i = 0; i < n_formats; i++) {
         AudioStreamBasicDescription asbd = formats[i].mFormat;
         ca_print_asbd(ao, "supported format:", &(asbd));
-        if (ca_format_is_digital(asbd)) {
+        if (ca_format_is_compressed(asbd)) {
             talloc_free(formats);
             return true;
         }
@@ -146,6 +242,37 @@ bool ca_device_supports_digital(struct ao *ao, AudioDeviceID device)
 coreaudio_error:
     return false;
 }
+static bool ca_match_fflags(int target, int matchee){
+    int flags[4] = {
+        kAudioFormatFlagIsFloat,
+        kAudioFormatFlagIsSignedInteger,
+        kAudioFormatFlagIsBigEndian,
+        0
+    };
+
+    for (int i=0; flags[i]; i++)
+        if (target & flags[i] != target & flags[i])
+            return false;
+
+    return true;
+}
+
+bool ca_asbd_matches(AudioStreamBasicDescription target,
+                     AudioStreamBasicDescription matchee)
+{
+    return target.mFormatID == matchee.mFormatID &&
+           target.mBitsPerChannel == matchee.mBitsPerChannel &&
+           ca_match_fflags(target.mBitsPerChannel, matchee.mBitsPerChannel);
+}
+
+bool ca_asbd_best(AudioStreamBasicDescription target,
+                  AudioStreamBasicDescription matchee)
+{
+    return ca_asbd_matches(target, matchee) &&
+        target.mSampleRate == matchee.mSampleRate &&
+        target.mChannelsPerFrame  == matchee.mChannelsPerFrame;
+}
+
 
 OSStatus ca_property_listener(AudioObjectPropertySelector selector,
                               AudioObjectID object, uint32_t n_addresses,

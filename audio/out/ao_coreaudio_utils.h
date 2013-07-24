@@ -47,10 +47,19 @@ bool check_ca_st(struct ao *ao, int level, OSStatus code, const char *message);
 
 void ca_print_asbd(struct ao *ao, const char *description,
                    const AudioStreamBasicDescription *asbd);
+char *ca_asbd_repr(const AudioStreamBasicDescription *asbd);
+void ca_print_device_list(struct ao *ao);
 
-bool ca_format_is_digital(AudioStreamBasicDescription asbd);
+AudioStreamBasicDescription ca_make_asbd(int mp_format, int rate, int channels);
+bool ca_format_is_compressed(AudioStreamBasicDescription asbd);
 bool ca_stream_supports_digital(struct ao *ao, AudioStreamID stream);
 bool ca_device_supports_digital(struct ao *ao, AudioDeviceID device);
+
+bool ca_asbd_matches(AudioStreamBasicDescription target,
+                     AudioStreamBasicDescription matchee);
+
+bool ca_asbd_best(AudioStreamBasicDescription target,
+                  AudioStreamBasicDescription matchee);
 
 OSStatus ca_property_listener(AudioObjectPropertySelector selector,
                               AudioObjectID object, uint32_t n_addresses,

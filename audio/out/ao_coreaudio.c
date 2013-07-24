@@ -82,8 +82,6 @@ struct priv_d {
 
 struct priv {
     AudioDeviceID device;   // selected device
-    bool is_digital;        // running in digital mode?
-
     AudioUnit audio_unit;   // AudioUnit for lpcm output
 
     bool paused;
@@ -94,6 +92,7 @@ struct priv {
     // options
     int opt_device_id;
     int opt_list;
+    int opt_exclusive;
 };
 
 static int get_ring_size(struct ao *ao)
@@ -137,7 +136,7 @@ static OSStatus render_cb_digital(
     if (d->muted)
         mp_ring_drain(p->buffer, requested);
     else
-        mp_ring_read(p->buffer, buf.mData, requested);
+        buf.mDataByteSize = mp_ring_read(p->buffer, buf.mData, requested);
 
     return noErr;
 }
@@ -151,7 +150,7 @@ static int control(struct ao *ao, enum aocontrol cmd, void *arg)
     switch (cmd) {
     case AOCONTROL_GET_VOLUME:
         control_vol = (ao_control_vol_t *)arg;
-        if (p->is_digital) {
+        if (p->opt_exclusive) {
             struct priv_d *d = p->digital;
             // Digital output has no volume adjust.
             int digitalvol = d->muted ? 0 : 100;
@@ -171,7 +170,7 @@ static int control(struct ao *ao, enum aocontrol cmd, void *arg)
     case AOCONTROL_SET_VOLUME:
         control_vol = (ao_control_vol_t *)arg;
 
-        if (p->is_digital) {
+        if (p->opt_exclusive) {
             struct priv_d *d = p->digital;
             // Digital output can not set volume. Here we have to return true
             // to make mixer forget it. Else mixer will add a soft filter,
@@ -201,39 +200,6 @@ coreaudio_error:
     return CONTROL_ERROR;
 }
 
-static void print_list(struct ao *ao)
-{
-    char *help = talloc_strdup(NULL, "Available output devices:\n");
-
-    AudioDeviceID *devs;
-    size_t n_devs;
-
-    OSStatus err =
-        CA_GET_ARY(kAudioObjectSystemObject, kAudioHardwarePropertyDevices,
-                   &devs, &n_devs);
-
-    CHECK_CA_ERROR("Failed to get list of output devices.");
-
-    for (int i = 0; i < n_devs; i++) {
-        char *name;
-        err = CA_GET_STR(devs[i], kAudioObjectPropertyName, &name);
-
-        if (err == noErr)
-            talloc_steal(devs, name);
-        else
-            name = "Unknown";
-
-        help = talloc_asprintf_append(
-                help, "  * %s (id: %" PRIu32 ")\n", name, devs[i]);
-    }
-
-    talloc_free(devs);
-
-coreaudio_error:
-    MP_INFO(ao, "%s", help);
-    talloc_free(help);
-}
-
 static int init_lpcm(struct ao *ao, AudioStreamBasicDescription asbd);
 static int init_digital(struct ao *ao, AudioStreamBasicDescription asbd);
 
@@ -242,7 +208,7 @@ static int init(struct ao *ao)
     OSStatus err;
     struct priv *p   = ao->priv;
 
-    if (p->opt_list) print_list(ao);
+    if (p->opt_list) ca_print_device_list(ao);
 
     struct priv_d *d = talloc_zero(p, struct priv_d);
 
@@ -287,14 +253,7 @@ static int init(struct ao *ao)
 
     ao->format = af_fmt_from_planar(ao->format);
 
-    bool supports_digital = false;
-    /* Probe whether device support S/PDIF stream output if input is AC3 stream. */
-    if (AF_FORMAT_IS_AC3(ao->format)) {
-        if (ca_device_supports_digital(ao, selected_device))
-            supports_digital = true;
-    }
-
-    if (!supports_digital) {
+    if (!p->opt_exclusive) {
         AudioChannelLayout *layouts;
         size_t n_layouts;
         err = CA_GET_ARY_O(selected_device,
@@ -328,32 +287,12 @@ static int init(struct ao *ao)
 
     } // closes if (!supports_digital)
 
-    // Build ASBD for the input format
-    AudioStreamBasicDescription asbd;
-    asbd.mSampleRate       = ao->samplerate;
-    asbd.mFormatID         = supports_digital ?
-                             kAudioFormat60958AC3 : kAudioFormatLinearPCM;
-    asbd.mChannelsPerFrame = ao->channels.num;
-    asbd.mBitsPerChannel   = af_fmt2bits(ao->format);
-    asbd.mFormatFlags      = kAudioFormatFlagIsPacked;
-
-    if ((ao->format & AF_FORMAT_POINT_MASK) == AF_FORMAT_F)
-        asbd.mFormatFlags |= kAudioFormatFlagIsFloat;
-
-    if ((ao->format & AF_FORMAT_SIGN_MASK) == AF_FORMAT_SI)
-        asbd.mFormatFlags |= kAudioFormatFlagIsSignedInteger;
-
-    if ((ao->format & AF_FORMAT_END_MASK) == AF_FORMAT_BE)
-        asbd.mFormatFlags |= kAudioFormatFlagIsBigEndian;
-
-    asbd.mFramesPerPacket = 1;
-    asbd.mBytesPerPacket = asbd.mBytesPerFrame =
-        asbd.mFramesPerPacket * asbd.mChannelsPerFrame *
-        (asbd.mBitsPerChannel / 8);
+    AudioStreamBasicDescription asbd =
+        ca_make_asbd(ao->format, ao->samplerate, ao->channels.num);
 
     ca_print_asbd(ao, "source format:", &asbd);
 
-    if (supports_digital)
+    if (p->opt_exclusive)
         return init_digital(ao, asbd);
     else
         return init_lpcm(ao, asbd);
@@ -463,7 +402,7 @@ static int init_digital(struct ao *ao, AudioStreamBasicDescription asbd)
     if (!is_alive)
         MP_WARN(ao , "device is not alive\n");
 
-    p->is_digital = 1;
+    p->opt_exclusive = 1;
 
     err = ca_lock_device(p->device, &d->hog_pid);
     CHECK_CA_WARN("failed to set hogmode");
@@ -481,52 +420,46 @@ static int init_digital(struct ao *ao, AudioStreamBasicDescription asbd)
     CHECK_CA_ERROR("could not get number of streams");
 
     for (int i = 0; i < n_streams && d->stream_idx < 0; i++) {
-        bool digital = ca_stream_supports_digital(ao, streams[i]);
+        err = CA_GET(streams[i], kAudioStreamPropertyPhysicalFormat,
+                     &d->original_asbd);
+        if (!CHECK_CA_WARN("could not get stream's physical format to "
+                           "revert to, getting the next one"))
+            continue;
 
-        if (digital) {
-            err = CA_GET(streams[i], kAudioStreamPropertyPhysicalFormat,
-                         &d->original_asbd);
-            if (!CHECK_CA_WARN("could not get stream's physical format to "
-                               "revert to, getting the next one"))
-                continue;
+        AudioStreamRangedDescription *formats;
+        size_t n_formats;
 
-            AudioStreamRangedDescription *formats;
-            size_t n_formats;
+        err = CA_GET_ARY(streams[i],
+                         kAudioStreamPropertyAvailablePhysicalFormats,
+                         &formats, &n_formats);
 
-            err = CA_GET_ARY(streams[i],
-                             kAudioStreamPropertyAvailablePhysicalFormats,
-                             &formats, &n_formats);
+        if (!CHECK_CA_WARN("could not get number of stream formats"))
+            continue; // try next one
 
-            if (!CHECK_CA_WARN("could not get number of stream formats"))
-                continue; // try next one
+        int req_rate_format = -1;
+        int max_rate_format = -1;
 
-            int req_rate_format = -1;
-            int max_rate_format = -1;
+        d->stream = streams[i];
+        d->stream_idx = i;
 
-            d->stream = streams[i];
-            d->stream_idx = i;
+        for (int j = 0; j < n_formats; j++)
+            // select the digital format that has exactly the same
+            // samplerate. If an exact match cannot be found, select
+            // the format with highest samplerate as backup.
+            if (ca_asbd_best(formats[j].mFormat, asbd)) {
+                req_rate_format = j;
+                break;
+            } else if (ca_asbd_matches(formats[j].mFormat, asbd) &&
+                ( max_rate_format < 0 || formats[j].mFormat.mSampleRate >
+                formats[max_rate_format].mFormat.mSampleRate))
+                max_rate_format = j;
 
-            for (int j = 0; j < n_formats; j++)
-                if (ca_format_is_digital(formats[j].mFormat)) {
-                    // select the digital format that has exactly the same
-                    // samplerate. If an exact match cannot be found, select
-                    // the format with highest samplerate as backup.
-                    if (formats[j].mFormat.mSampleRate == asbd.mSampleRate) {
-                        req_rate_format = j;
-                        break;
-                    } else if (max_rate_format < 0 ||
-                        formats[j].mFormat.mSampleRate >
-                        formats[max_rate_format].mFormat.mSampleRate)
-                        max_rate_format = j;
-                }
+        if (req_rate_format >= 0)
+            d->stream_asbd = formats[req_rate_format].mFormat;
+        else
+            d->stream_asbd = formats[max_rate_format].mFormat;
 
-            if (req_rate_format >= 0)
-                d->stream_asbd = formats[req_rate_format].mFormat;
-            else
-                d->stream_asbd = formats[max_rate_format].mFormat;
-
-            talloc_free(formats);
-        }
+        talloc_free(formats);
     }
 
     talloc_free(streams);
@@ -542,16 +475,6 @@ static int init_digital(struct ao *ao, AudioStreamBasicDescription asbd)
     void *changed = (void *) &(d->stream_asbd_changed);
     err = ca_enable_device_listener(p->device, changed);
     CHECK_CA_ERROR("cannot install format change listener during init");
-
-#if BYTE_ORDER == BIG_ENDIAN
-    if (!(p->stream_asdb.mFormatFlags & kAudioFormatFlagIsBigEndian))
-#else
-    /* tell mplayer that we need a byteswap on AC3 streams, */
-    if (d->stream_asbd.mFormatID & kAudioFormat60958AC3)
-        ao->format = AF_FORMAT_AC3_LE;
-    else if (d->stream_asbd.mFormatFlags & kAudioFormatFlagIsBigEndian)
-#endif
-        MP_WARN(ao, "stream has non-native byte order, output may fail\n");
 
     ao->samplerate = d->stream_asbd.mSampleRate;
     ao->bps = ao->samplerate *
@@ -586,15 +509,13 @@ static int play(struct ao *ao, void **data, int samples, int flags)
     int num_bytes = samples * ao->sstride;
 
     // Check whether we need to reset the digital output stream.
-    if (p->is_digital && d->stream_asbd_changed) {
+    if (p->opt_exclusive && d->stream_asbd_changed) {
         d->stream_asbd_changed = 0;
-        if (ca_stream_supports_digital(ao, d->stream)) {
-            if (!ca_change_format(ao, d->stream, d->stream_asbd)) {
-                MP_WARN(ao , "can't restore digital output\n");
-            } else {
-                MP_WARN(ao, "restoring digital output succeeded.\n");
-                reset(ao);
-            }
+        if (!ca_change_format(ao, d->stream, d->stream_asbd)) {
+            MP_WARN(ao , "can't restore digital output\n");
+        } else {
+            MP_WARN(ao, "restoring digital output succeeded.\n");
+            reset(ao);
         }
     }
 
@@ -633,7 +554,7 @@ static void uninit(struct ao *ao, bool immed)
     if (!immed)
         mp_sleep_us(get_delay(ao) * 1000000);
 
-    if (!p->is_digital) {
+    if (!p->opt_exclusive) {
         AudioOutputUnitStop(p->audio_unit);
         AudioUnitUninitialize(p->audio_unit);
         AudioComponentInstanceDispose(p->audio_unit);
@@ -669,7 +590,7 @@ static void audio_pause(struct ao *ao)
     if (p->paused)
         return;
 
-    if (!p->is_digital) {
+    if (!p->opt_exclusive) {
         err = AudioOutputUnitStop(p->audio_unit);
         CHECK_CA_WARN("can't stop audio unit");
     } else {
@@ -689,7 +610,7 @@ static void audio_resume(struct ao *ao)
     if (!p->paused)
         return;
 
-    if (!p->is_digital) {
+    if (!p->opt_exclusive) {
         err = AudioOutputUnitStart(p->audio_unit);
         CHECK_CA_WARN("can't start audio unit");
     } else {
@@ -719,6 +640,7 @@ const struct ao_driver audio_out_coreaudio = {
     .options = (const struct m_option[]) {
         OPT_INT("device_id", opt_device_id, 0, OPTDEF_INT(-1)),
         OPT_FLAG("list", opt_list, 0),
+        OPT_FLAG("exclusive", opt_exclusive, 0),
         {0}
     },
 };
