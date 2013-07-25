@@ -2614,6 +2614,22 @@ void run_command(MPContext *mpctx, mp_cmd_t *cmd)
     }
 }
 
+struct event {
+    enum mp_event event;
+    void *arg;
+    struct event *next;
+};
+
+struct command_ctx {
+    struct event *events_head;
+    struct event *events_tail;
+};
+
+void command_init(struct MPContext *mpctx)
+{
+    mpctx->command_ctx = talloc_zero(mpctx, struct command_ctx);
+}
+
 static void script_event(struct MPContext *mpctx, const char *name,
                          const char *arg)
 {
@@ -2630,13 +2646,36 @@ void mp_notify_property(struct MPContext *mpctx, const char *property)
 
 void mp_notify(struct MPContext *mpctx, enum mp_event event, void *arg)
 {
+    struct command_ctx *ctx = mpctx->command_ctx;
+    struct event *new = talloc_ptrtype(NULL, new);
+    *new = (struct event) {
+        .event = event,
+        .arg = arg,
+    };
     switch (event) {
+    case MP_EVENT_PROPERTY:
+        new->arg = talloc_strdup(new, new->arg);
+        break;
+    }
+    if (ctx->events_tail) {
+        assert(ctx->events_head);
+        ctx->events_tail->next = new;
+    } else {
+        assert(!ctx->events_head);
+        ctx->events_head = new;
+    }
+    ctx->events_tail = new;
+}
+
+static void send_event(struct MPContext *mpctx, struct event *e)
+{
+    switch (e->event) {
     case MP_EVENT_TICK: {
         script_event(mpctx, "tick", NULL);
         break;
     }
     case MP_EVENT_PROPERTY: {
-        const char *name = arg;
+        const char *name = e->arg;
         mp_msg(MSGT_CPLAYER, MSGL_V, "Property '%s' changed.\n", name);
         script_event(mpctx, "property", name);
         break;
@@ -2649,5 +2688,44 @@ void mp_notify(struct MPContext *mpctx, enum mp_event event, void *arg)
         script_event(mpctx, "end", NULL);
         break;
     }
+    case MP_EVENT_TRACKS_CHANGED: {
+        script_event(mpctx, "track-layout", NULL);
+        mp_notify_property(mpctx, "vid");
+        mp_notify_property(mpctx, "aid");
+        mp_notify_property(mpctx, "sid");
+        break;
     }
+    }
+}
+
+// Note: while scripts process events, they might call back into the core,
+// and add more events. These should be processed "next time".
+int mp_flush_events(struct MPContext *mpctx)
+{
+    struct command_ctx *ctx = mpctx->command_ctx;
+    struct event *list = ctx->events_head;
+    int events = 0;
+    ctx->events_head = NULL;
+    ctx->events_tail = NULL;
+    while (list) {
+        struct event *next = list->next;
+        send_event(mpctx, list);
+        talloc_free(list);
+        list = next;
+        events++;
+    }
+    return events;
+}
+
+// Like mp_flush_events(), but process new events until done.
+int mp_flush_events_all(struct MPContext *mpctx)
+{
+    int events = 0;
+    while (1) {
+        int n = mp_flush_events(mpctx);
+        events += n;
+        if (!n)
+            break;
+    }
+    return events;
 }

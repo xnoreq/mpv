@@ -22,6 +22,8 @@
 struct MPContext;
 struct mp_cmd;
 
+void command_init(struct MPContext *mpctx);
+
 void mp_get_osd_mouse_pos(struct MPContext *mpctx, float *x, float *y);
 
 void run_command(struct MPContext *mpctx, struct mp_cmd *cmd);
@@ -36,11 +38,15 @@ enum mp_event {
     MP_EVENT_NONE,
     MP_EVENT_TICK,
     MP_EVENT_PROPERTY,          // char*, property that is changed
+    MP_EVENT_TRACKS_CHANGED,
     MP_EVENT_START_FILE,
     MP_EVENT_END_FILE,
 };
 
 void mp_notify(struct MPContext *mpctx, enum mp_event event, void *arg);
 void mp_notify_property(struct MPContext *mpctx, const char *property);
+
+int mp_flush_events(struct MPContext *mpctx);
+int mp_flush_events_all(struct MPContext *mpctx);
 
 #endif /* MPLAYER_COMMAND_H */

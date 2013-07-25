@@ -936,6 +936,7 @@ function process_event(source, what)
 end
 
 function mp_event(name, arg)
+    --print("event: " .. name .. " arg: " .. (arg or "-") .. " -")
     if name == "tick" then
         render()
     elseif name == "start" then

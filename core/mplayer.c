@@ -982,6 +982,8 @@ static struct track *add_stream_track(struct MPContext *mpctx,
 
     demuxer_select_track(track->demuxer, stream, false);
 
+    mp_notify(mpctx, MP_EVENT_TRACKS_CHANGED, NULL);
+
     return track;
 }
 
@@ -1011,6 +1013,8 @@ static void add_dvd_tracks(struct MPContext *mpctx)
             struct stream_lang_req req = {.type = STREAM_SUB, .id = n};
             stream_control(stream, STREAM_CTRL_GET_LANG, &req);
             track->lang = talloc_strdup(track, req.name);
+
+            mp_notify(mpctx, MP_EVENT_TRACKS_CHANGED, NULL);
         }
     }
     demuxer_enable_autoselect(demuxer);
@@ -2003,12 +2007,15 @@ void mp_switch_track(struct MPContext *mpctx, enum stream_type type,
     if (type == STREAM_VIDEO) {
         mpctx->opts.video_id = user_tid;
         reinit_video_chain(mpctx);
+        mp_notify_property(mpctx, "vid");
     } else if (type == STREAM_AUDIO) {
         mpctx->opts.audio_id = user_tid;
         reinit_audio_chain(mpctx);
+        mp_notify_property(mpctx, "aid");
     } else if (type == STREAM_SUB) {
         mpctx->opts.sub_id = user_tid;
         reinit_subs(mpctx);
+        mp_notify_property(mpctx, "sid");
     }
 
     talloc_free(mpctx->track_layout_hash);
@@ -2051,6 +2058,9 @@ bool mp_remove_track(struct MPContext *mpctx, struct track *track)
     }
     mpctx->num_tracks--;
     talloc_free(track);
+
+    mp_notify(mpctx, MP_EVENT_TRACKS_CHANGED, NULL);
+
     return true;
 }
 
@@ -2700,6 +2710,8 @@ static double update_video(struct MPContext *mpctx, double endpts)
 
 void pause_player(struct MPContext *mpctx)
 {
+    mp_notify_property(mpctx, "pause");
+
     mpctx->opts.pause = 1;
 
     if (mpctx->video_out)
@@ -2729,6 +2741,8 @@ void pause_player(struct MPContext *mpctx)
 
 void unpause_player(struct MPContext *mpctx)
 {
+    mp_notify_property(mpctx, "pause");
+
     mpctx->opts.pause = 0;
 
     if (mpctx->video_out && mpctx->opts.stop_screensaver)
@@ -3680,6 +3694,7 @@ static void run_playloop(struct MPContext *mpctx)
     handle_pause_on_low_cache(mpctx);
 
     mp_notify(mpctx, MP_EVENT_TICK, NULL);
+    mp_flush_events(mpctx);
 
     mp_cmd_t *cmd;
     while ((cmd = mp_input_get_cmd(mpctx->input, 0, 1)) != NULL) {
@@ -4072,6 +4087,7 @@ static void idle_loop(struct MPContext *mpctx)
                                         false)));
         run_command(mpctx, cmd);
         mp_cmd_free(cmd);
+        mp_flush_events_all(mpctx);
     }
 }
 
@@ -4111,6 +4127,7 @@ static void play_current_file(struct MPContext *mpctx)
     struct MPOpts *opts = &mpctx->opts;
 
     mp_notify(mpctx, MP_EVENT_START_FILE, NULL);
+    mp_flush_events_all(mpctx);
 
     mpctx->stop_play = 0;
     mpctx->filename = NULL;
@@ -4445,7 +4462,9 @@ terminate_playback:  // don't jump here after ao/vo/getch initialization!
     ass_clear_fonts(mpctx->ass_library);
 #endif
 
+    mp_notify(mpctx, MP_EVENT_TRACKS_CHANGED, NULL);
     mp_notify(mpctx, MP_EVENT_END_FILE, NULL);
+    mp_flush_events_all(mpctx);
 }
 
 // Determine the next file to play. Note that if this function returns non-NULL,
@@ -4626,6 +4645,7 @@ static int mpv_main(int argc, char *argv[])
     mp_msg_init();
     init_libav();
     screenshot_init(mpctx);
+    command_init(mpctx);
 
     struct MPOpts *opts = &mpctx->opts;
     // Create the config context and register the options
