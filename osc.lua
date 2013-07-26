@@ -31,7 +31,7 @@ local osc_param = {
 local osc_styles = {
     bigButtons = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs50\\fnosd-font}",
     smallButtonsL = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs20\\fnosd-font}",
-    smallButtonsLlabel = "{\\fs17}",
+    smallButtonsLlabel = "{\\fs17\\fn" .. mp.property_get("options/osd-font") .. "}",
     smallButtonsR = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs30\\fnosd-font}",
 
     elementDown = "{\\1c&H999999}",
@@ -61,7 +61,8 @@ local state = {
     mouse_down_counter = 0,                 -- used for softrepeat
     active_element = nil,                   -- nil = none, 0 = background, 1+ = see elements[]
     active_event_source = nil,              -- the "button" that issued the current event
-    rightTC_trem = false,                   -- if the left timcode should display total or remaining time
+    rightTC_trem = true,                    -- if the left timcode should display total or remaining time
+    tc_ms = false,                          -- Should the timecodes display their time with milliseconds
     mp_screen_sizeX, mp_screen_sizeY,       -- last screen-resolution, to detect resolution changes to issue reINITs
     initREQ = false,                        -- is a re-init request pending?
     last_seek,                              -- last seek position, to avoid deadlocks be repeatedly seeking to the same position
@@ -700,9 +701,18 @@ function osc_init()
 
     -- left (current pos)
     local metainfo = {}
-    metainfo.styledown = false
-    local contentF = function (ass) return ass:append(mp.property_get_string("time-pos")) end
-    register_button(posX - pos_offsetX, bottom_line, 4, 110, 20, osc_styles.timecodes, contentF, nil, metainfo)
+    local eventresponder = {}
+    
+    local contentF = function (ass) 
+        if state.tc_ms then
+            ass:append(mp.property_get_string("time-pos/full"))
+        else
+            ass:append(mp.property_get_string("time-pos"))
+        end
+    end
+
+    eventresponder.mouse_btn0_up = function () state.tc_ms = not state.tc_ms end
+    register_button(posX - pos_offsetX, bottom_line, 4, 110, 20, osc_styles.timecodes, contentF, eventresponder, metainfo)
 
     -- right (total/remaining time)
     -- do we have a usuable duration?
@@ -711,9 +721,17 @@ function osc_init()
 
     local contentF = function (ass)
         if state.rightTC_trem == true then
-            ass:append("-" .. mp.property_get_string("time-remaining"))
+            if state.tc_ms then
+                ass:append("-" .. mp.property_get_string("time-remaining/full"))
+            else
+                ass:append("-" .. mp.property_get_string("time-remaining"))
+            end
         else
-            ass:append(mp.property_get_string("length"))
+            if state.tc_ms then
+                ass:append(mp.property_get_string("length/full"))
+            else
+                ass:append(mp.property_get_string("length"))
+            end
         end
     end
     local eventresponder = {}
@@ -939,7 +957,7 @@ function mp_event(name, arg)
     --print("event: " .. name .. " arg: " .. (arg or "-") .. " -")
     if name == "tick" then
         render()
-    elseif name == "start" then
+    elseif name == "start" or name == "track-layout" then
         --print("start new file")
         request_init()
     elseif name == "end" then
