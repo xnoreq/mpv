@@ -237,7 +237,24 @@ int load_termcap(char *termtype){
 
 #ifdef HAVE_TERMINFO
     use_env(TRUE);
-    setupterm(termtype, 1, NULL);
+    int ret;
+    if (setupterm(termtype, 1, &ret) != OK) {
+        /* try again, with with "ansi" terminal if it was unset before */
+        if (!termtype)
+            termtype = getenv("TERM");
+        if (!termtype || *termtype == '\0')
+            termtype = "ansi";
+
+        if (setupterm(termtype, 1, &ret) != OK) {
+            if (ret < 0) {
+                printf("Could not access the 'terminfo' data base.\n");
+                return 0;
+            } else {
+                printf("Couldn't use terminal `%s' for input.\n", termtype);
+                return 0;
+            }
+        }
+    }
 #else
     static char term_buffer[2048];
     if (!termtype) termtype = getenv("TERM");
@@ -386,7 +403,17 @@ bool getch2(struct input_ctx *input_ctx)
                 if (utf8_len > 1) {
                     state = STATE_UTF8;
                 } else if (utf8_len == 1) {
-                    mp_input_put_key(input_ctx, c);
+                    switch (c) {
+                    case 0x1b: /* ESC that's not part of escape sequence */
+                        /* only if ESC was typed twice, otherwise ignore it */
+                        if (getch2_len > 1 && getch2_buf[1] == 0x1b) {
+                            walk_buf(1); /* eat the second ESC */
+                            mp_input_put_key(input_ctx, MP_KEY_ESC);
+                        }
+                        break;
+                    default:
+                        mp_input_put_key(input_ctx, c);
+                    }
                     walk_buf(1);
                 } else
                     walk_buf(getch2_pos);
