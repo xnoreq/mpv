@@ -270,7 +270,10 @@ int load_termcap(char *termtype){
 #endif
     ensure_cap(&termcap_buf, 2048);
 
-    erase_to_end_of_line = termcap_get("ce");
+    static char term_buf[64];
+    char *buf_ptr = &term_buf[0];
+
+    erase_to_end_of_line = tgetstr("ce", &buf_ptr);
 
     screen_width  = tgetnum("co");
     screen_height = tgetnum("li");
@@ -279,8 +282,8 @@ int load_termcap(char *termtype){
     if (screen_height < 1 || screen_height > 255)
         screen_height = 24;
 
-    term_smkx = termcap_get("ks");
-    term_rmkx = termcap_get("ke");
+    term_smkx = tgetstr("ks", &buf_ptr);
+    term_rmkx = tgetstr("ke", &buf_ptr);
 
     cap_key_pair keys[] = {
         {"kP", MP_KEY_PGUP}, {"kN", MP_KEY_PGDWN}, {"kh", MP_KEY_HOME}, {"kH", MP_KEY_END},
@@ -541,6 +544,8 @@ static void continue_sighandler(int signum)
 
 static void quit_request_sighandler(int signum)
 {
+    do_deactivate_getch2();
+
     async_quit_request = 1;
 }
 
@@ -552,6 +557,7 @@ void getch2_enable(void){
     setsigaction(SIGCONT, continue_sighandler, 0, true);
     setsigaction(SIGTSTP, stop_sighandler, SA_RESETHAND, false);
     setsigaction(SIGINT,  quit_request_sighandler, SA_RESETHAND, false);
+    setsigaction(SIGQUIT, quit_request_sighandler, SA_RESETHAND, false);
     setsigaction(SIGTTIN, SIG_IGN, 0, true);
 
     do_activate_getch2();
@@ -567,6 +573,7 @@ void getch2_disable(void){
     setsigaction(SIGCONT, SIG_DFL, 0, false);
     setsigaction(SIGTSTP, SIG_DFL, 0, false);
     setsigaction(SIGINT,  SIG_DFL, 0, false);
+    setsigaction(SIGQUIT, SIG_DFL, 0, false);
     setsigaction(SIGTTIN, SIG_DFL, 0, false);
 
     do_deactivate_getch2();
