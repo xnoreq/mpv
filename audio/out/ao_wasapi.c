@@ -26,6 +26,7 @@
 #include <endpointvolume.h>
 #include <mmdeviceapi.h>
 #include <avrt.h>
+#include <sys/time.h>
 
 #include "config.h"
 #include "core/m_option.h"
@@ -1116,6 +1117,8 @@ static unsigned int __stdcall ThreadLoop(void *lpParameter)
     struct wasapi_state *state = (struct wasapi_state *)ao->priv;
     if (thread_init(ao))
         goto exit_label;
+    struct timeval start_time;
+    gettimeofday(&start_time, NULL);
 
     DWORD waitstatus = WAIT_FAILED;
     HANDLE playcontrol[] =
@@ -1126,41 +1129,77 @@ static unsigned int __stdcall ThreadLoop(void *lpParameter)
     LeaveCriticalSection(&state->print_lock);
     while (1) { /* watch events, poll at least every 2 seconds */
         waitstatus = WaitForMultipleObjects(7, playcontrol, FALSE, 2000);
+        struct timeval current_time;
+        gettimeofday(&current_time, NULL);
+        double time_diff = (current_time.tv_sec - start_time.tv_sec) +
+                           (current_time.tv_usec - start_time.tv_usec)/1000000.0;
+
         switch (waitstatus) {
         case WAIT_OBJECT_0: /*shutdown*/
+            EnterCriticalSection(&state->print_lock);
+            mp_msg(MSGT_AO, MSGL_DBG2, "ao_wasapi: ThreadLoop %.2fs: shutdown\n", time_diff);
             feedwatch = 0;
             thread_uninit(state);
             goto exit_label;
         case (WAIT_OBJECT_0 + 1): /* pause */
+            EnterCriticalSection(&state->print_lock);
+            mp_msg(MSGT_AO, MSGL_DBG3, "ao_wasapi: ThreadLoop %.2fs: pause (previous feedwatch: %d)\n",
+                   time_diff, feedwatch);
             feedwatch = 0;
             thread_pause(state);
             break;
         case (WAIT_OBJECT_0 + 2): /* reset */
+            EnterCriticalSection(&state->print_lock);
+            mp_msg(MSGT_AO, MSGL_DBG3, "ao_wasapi: ThreadLoop %.2fs: reset (previous feedwatch: %d)\n",
+                   time_diff, feedwatch);
             feedwatch = 0;
             thread_reset(state);
             break;
         case (WAIT_OBJECT_0 + 3): /* getVolume */
+            EnterCriticalSection(&state->print_lock);
+            mp_msg(MSGT_AO, MSGL_DBG3, "ao_wasapi: ThreadLoop %.2fs: getVolume (feedwatch: %d)\n",
+                   time_diff, feedwatch);
             thread_getVol(state);
             break;
         case (WAIT_OBJECT_0 + 4): /* setVolume */
+            EnterCriticalSection(&state->print_lock);
+            mp_msg(MSGT_AO, MSGL_DBG3, "ao_wasapi: ThreadLoop %.2fs: setVolume (feedwatch: %d)\n",
+                   time_diff, feedwatch);
             thread_setVol(state);
             break;
         case (WAIT_OBJECT_0 + 5): /* play */
+            EnterCriticalSection(&state->print_lock);
+            mp_msg(MSGT_AO, MSGL_DBG3, "ao_wasapi: ThreadLoop %.2fs: play (previous feedwatch: %d)\n",
+                   time_diff, feedwatch);
             feedwatch = 0;
             thread_play(state);
             break;
         case (WAIT_OBJECT_0 + 6): /* feed */
+            thread_feed(state, 0); // feed before debug log: avoid blocking
+            EnterCriticalSection(&state->print_lock);
+            mp_msg(MSGT_AO, MSGL_DBG3, "ao_wasapi: ThreadLoop %.2fs: feeding (previous feedwatch: %d)\n",
+                   time_diff, feedwatch);
             feedwatch = 1;
-            thread_feed(state, 0);
             break;
         case WAIT_TIMEOUT: /* Did our feed die? */
-            if (feedwatch)
+            EnterCriticalSection(&state->print_lock);
+            mp_msg(MSGT_AO, MSGL_DBG2, "ao_wasapi: ThreadLoop %.2fs: timeout (feedwatch: %d)\n",
+                   time_diff, feedwatch);
+            if (feedwatch) {
+                mp_msg(MSGT_AO, MSGL_ERR, "ao_wasapi: ThreadLoop %.2fs: timeout while waiting on feed!\n",
+                       time_diff);
+                LeaveCriticalSection(&state->print_lock);
                 return -1;
+            }
             break;
         default:
         case WAIT_FAILED: /* ??? */
+            mp_msg(MSGT_AO, MSGL_ERR, "ao_wasapi: ThreadLoop %.2fs: WaitForMultipleObjects failed!\n",
+                   time_diff);
+            LeaveCriticalSection(&state->print_lock);
             return -1;
         }
+        LeaveCriticalSection(&state->print_lock);
     }
 exit_label:
     return state->init_ret;
