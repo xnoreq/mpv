@@ -1176,10 +1176,16 @@ static unsigned int __stdcall ThreadLoop(void *lpParameter)
             break;
         case (WAIT_OBJECT_0 + 6): /* feed */
             thread_feed(state, 0); // feed before debug log: avoid blocking
-            EnterCriticalSection(&state->print_lock);
-            mp_msg(MSGT_AO, MSGL_DBG3, "ao_wasapi: ThreadLoop %.2fs: feeding (previous feedwatch: %d)\n",
-                   time_diff, feedwatch);
-            feedwatch = 1;
+            if (state->is_playing) {
+                EnterCriticalSection(&state->print_lock);
+                mp_msg(MSGT_AO, MSGL_DBG3, "ao_wasapi: ThreadLoop %.2fs: feeding (previous feedwatch: %d)\n",
+                       time_diff, feedwatch);
+                feedwatch = 1;
+            } else {
+                EnterCriticalSection(&state->print_lock);
+                mp_msg(MSGT_AO, MSGL_DBG3, "ao_wasapi: ThreadLoop %.2fs: feed request while paused (feedwatch: %d)\n",
+                       time_diff);
+            }
             break;
         case WAIT_TIMEOUT: /* Did our feed die? */
             EnterCriticalSection(&state->print_lock);
