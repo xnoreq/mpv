@@ -40,20 +40,6 @@ local osc_styles = {
     vidtitle = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs12}",
     box = "{\\bord1\\1c&H000000\\1a&H50&\\3c&HFFFFFF\\3a&H50&}",
 }
---[[
-local osc_styles = {
-    bigButtons = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs50\\fnosd-font}",
-    smallButtonsL = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs20\\fnosd-font}",
-    smallButtonsLlabel = "{\\fs17\\fnsans-serif}",
-    smallButtonsR = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs30\\fnosd-font}",
-
-    elementDown = "{\\1c&H999999}",
-    elementDisab = "{\\1a&H88&}",
-    timecodes = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs20\\fnsans-serif}",
-    vidtitle = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs12\\fnsans-serif}",
-    box = "{\\bord1\\1c&H000000\\1a&H50&\\3c&HFFFFFF\\3a&H50&}",
-}
---]]
 
 -- internal states, do not touch
 local state = {
@@ -66,6 +52,8 @@ local state = {
     mp_screen_sizeX, mp_screen_sizeY,       -- last screen-resolution, to detect resolution changes to issue reINITs
     initREQ = false,                        -- is a re-init request pending?
     last_seek,                              -- last seek position, to avoid deadlocks be repeatedly seeking to the same position
+    message_text,
+    message_timeout,
 }
 
 --
@@ -371,7 +359,52 @@ function render_elements(master_ass)
 end
 
 --
--- Initialisation and arrangement
+-- Message display
+--
+
+function show_message(text, duration)
+    
+    if duration == nil then
+        duration = tonumber(mp.property_get("options/osd-duration")) / 1000
+    end
+
+    -- cut the text short, otherwise the following functions may slow down massively on huge playlists
+    text = string.sub(text, 0, 4000)
+
+    -- replace actual linebreaks with ASS linebreaks and get the ammount of lines along the way
+    local lines
+    text, lines = string.gsub(text, "\n", "\\N")
+
+    -- append a Zero-Width-Space to . and _ to enable linebreaking of long filenames
+    text = string.gsub(text, "%.", ".\226\128\139")
+    text = string.gsub(text, "_", "_\226\128\139")
+
+    -- scale the fontsize for longer multi-line output
+    local fontsize = tonumber(mp.property_get("options/osd-font-size"))
+    if lines > 12 then
+        fontsize = fontsize / 2
+    elseif lines > 8 then
+        fontsize = fontsize / 1.5
+    end
+
+    local style = "{\\bord" .. tonumber(mp.property_get("options/osd-border-size")) .. "\\fs" .. fontsize .. "}"
+
+    state.message_text = style .. text
+    state.message_timeout = mp.get_timer() + duration
+end
+
+function render_message(ass)
+    if not(state.message_timeout == nil) and not(state.message_text == nil) and state.message_timeout > mp.get_timer() then
+        ass:new_event()
+        ass:append(state.message_text)
+    else
+        state.message_text = nil
+        state.message_timeout = nil
+    end
+end
+
+--
+-- Initialisation and Layout
 --
 
 -- OSC INIT
@@ -431,16 +464,17 @@ function osc_init()
     local eventresponder = {}
     eventresponder.mouse_btn0_up = function ()
 
-        local title = "${media-title}"
+        local title = mp.property_get("media-title")
+        local pl_count = tonumber(mp.property_get("playlist-count"))
 
-        if tonumber(mp.property_get("playlist-count")) > 1 then
+        if pl_count > 1 then
             local playlist_pos = countone(tonumber(mp.property_get("playlist-pos")))
-            title = "[" .. playlist_pos .. "/${playlist-count}] " .. title
+            title = "[" .. playlist_pos .. "/" .. pl_count .. "] " .. title
         end
 
-        mp.send_command("show_text \"" .. title .. "\"")
+        show_message(title)
     end
-    eventresponder.mouse_btn2_up = function () mp.send_command("show_text ${filename}") end
+    eventresponder.mouse_btn2_up = function () show_message(mp.property_get("filename")) end
 
     register_button(posX, posY - pos_offsetY - 10, 8, 496, 12, osc_styles.vidtitle, contentF, eventresponder, nil) 
 
@@ -451,13 +485,13 @@ function osc_init()
     -- playlist prev
     local eventresponder = {}
     eventresponder.mouse_btn0_up = function () mp.send_command("playlist_prev weak") end
-    eventresponder["shift+mouse_btn0_up"] = function () mp.send_command("show_text ${playlist}") end
+    eventresponder["shift+mouse_btn0_up"] = function () show_message(mp.property_get("playlist"), 3) end
     register_button(posX - pos_offsetX, posY - pos_offsetY - 10, 7, 12, 12, osc_styles.vidtitle, "◀", eventresponder, metainfo)
 
     -- playlist next
     local eventresponder = {}
     eventresponder.mouse_btn0_up = function () mp.send_command("playlist_next weak") end
-    eventresponder["shift+mouse_btn0_up"] = function () mp.send_command("show_text ${playlist}") end
+    eventresponder["shift+mouse_btn0_up"] = function () show_message(mp.property_get("playlist"), 3) end
     register_button(posX + pos_offsetX, posY - pos_offsetY - 10, 9, 12, 12, osc_styles.vidtitle, "▶", eventresponder, metainfo)
     
     --
@@ -512,13 +546,13 @@ function osc_init()
         end
         
     end
-    eventresponder["shift+mouse_btn0_up"] = function () mp.send_command("show_text ${chapter-list}") end
+    eventresponder["shift+mouse_btn0_up"] = function () show_message(mp.property_get("chapter-list"), 3) end
     register_button(posX-120, bbposY, 5, 40, 40, osc_styles.bigButtons, "\238\132\132", eventresponder, metainfo)
 
     --next
     local eventresponder = {}
     eventresponder.mouse_btn0_up = function () mp.send_command("osd-msg add chapter 1") end
-    eventresponder["shift+mouse_btn0_up"] = function () mp.send_command("show_text ${chapter-list}") end
+    eventresponder["shift+mouse_btn0_up"] = function () show_message(mp.property_get("chapter-list"), 3) end
     register_button(posX+120, bbposY, 5, 40, 40, osc_styles.bigButtons, "\238\132\133", eventresponder, metainfo)
 
 
@@ -583,9 +617,7 @@ function osc_init()
     eventresponder.mouse_btn0_up = function () mp.send_command("add audio 1") end
     eventresponder.mouse_btn2_up = function () mp.send_command("add audio -1") end
     eventresponder["shift+mouse_btn0_down"] = function ()
-        local msg = "Available Audio Tracks: "
-        msg = msg .. build_tracklist(audiotracks)
-        mp.send_command("show_text \"".. msg .."\"")
+        show_message("Available Audio Tracks: " .. build_tracklist(audiotracks), 2)
     end
     register_button(posX-pos_offsetX, bbposY, 1, 70, 18, osc_styles.smallButtonsL, contentF, eventresponder, metainfo)
     
@@ -634,9 +666,7 @@ function osc_init()
     eventresponder.mouse_btn0_up = function () mp.send_command("add sub 1") end
     eventresponder.mouse_btn2_up = function () mp.send_command("add sub -1") end
     eventresponder["shift+mouse_btn0_down"] = function ()
-        local msg = "Available Subtitle Tracks: "
-        msg = msg .. build_tracklist(subtracks)
-        mp.send_command("show_text \"".. msg .."\"")
+        show_message("Available Subtitle Tracks: " .. build_tracklist(subtracks), 2)
     end
     register_button(posX-pos_offsetX, bbposY, 7, 70, 18, osc_styles.smallButtonsL, contentF, eventresponder, metainfo)
 
@@ -712,7 +742,7 @@ function osc_init()
     end
 
     eventresponder.mouse_btn0_up = function () state.tc_ms = not state.tc_ms end
-    register_button(posX - pos_offsetX, bottom_line, 4, 110, 20, osc_styles.timecodes, contentF, eventresponder, metainfo)
+    register_button(posX - pos_offsetX, bottom_line, 4, 110, 18, osc_styles.timecodes, contentF, eventresponder, metainfo)
 
     -- right (total/remaining time)
     -- do we have a usuable duration?
@@ -737,7 +767,7 @@ function osc_init()
     local eventresponder = {}
     eventresponder.mouse_btn0_up = function () state.rightTC_trem = not state.rightTC_trem end
 
-    register_button(posX + pos_offsetX, bottom_line, 6, 110, 20, osc_styles.timecodes, contentF, eventresponder, metainfo)
+    register_button(posX + pos_offsetX, bottom_line, 6, 110, 18, osc_styles.timecodes, contentF, eventresponder, metainfo)
 
     -- Volume Slider
     --[[
@@ -832,6 +862,8 @@ function render()
     if state.osc_visible then
         render_elements(ass)
     end
+
+    render_message(ass)
 
 
     --[[ Old show handling
