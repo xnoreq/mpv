@@ -324,7 +324,7 @@ function register_slider(x, y, an, w, h, style, min, max, markerF, posF, eventre
     local ass = assdraw.ass_new()
     local border, gap = metainfo.slider.border, metainfo.slider.gap
     local fill_offsetV = border + gap       -- Vertical offset between element outline and drag-area
-    local fill_offsetH = h/2       -- Horizontal offset between element outline and drag-area
+    local fill_offsetH = h / 2       -- Horizontal offset between element outline and drag-area
 
     ass:draw_start()
 
@@ -521,6 +521,8 @@ function osc_init()
     -- Title row
     --
 
+    local titlerowY = posY - pos_offsetY - 10
+
     -- title
     local contentF = function (ass)
         local title = mp.property_get_string("media-title")
@@ -551,7 +553,7 @@ function osc_init()
     end
     eventresponder.mouse_btn2_up = function () show_message(mp.property_get("filename")) end
 
-    register_button(posX, posY - pos_offsetY - 10, 8, 496, 12, osc_styles.vidtitle, contentF, eventresponder, nil) 
+    register_button(posX, titlerowY, 8, 496, 12, osc_styles.vidtitle, contentF, eventresponder, nil) 
 
     -- If we have more than one playlist entry, render playlist navigation buttons
     local metainfo = {}
@@ -561,19 +563,20 @@ function osc_init()
     local eventresponder = {}
     eventresponder.mouse_btn0_up = function () mp.send_command("playlist_prev weak") end
     eventresponder["shift+mouse_btn0_up"] = function () show_message(mp.property_get("playlist"), 3) end
-    register_button(posX - pos_offsetX, posY - pos_offsetY - 10, 7, 12, 12, osc_styles.vidtitle, "◀", eventresponder, metainfo)
+    register_button(posX - pos_offsetX, titlerowY, 7, 12, 12, osc_styles.vidtitle, "◀", eventresponder, metainfo)
 
     -- playlist next
     local eventresponder = {}
     eventresponder.mouse_btn0_up = function () mp.send_command("playlist_next weak") end
     eventresponder["shift+mouse_btn0_up"] = function () show_message(mp.property_get("playlist"), 3) end
-    register_button(posX + pos_offsetX, posY - pos_offsetY - 10, 9, 12, 12, osc_styles.vidtitle, "▶", eventresponder, metainfo)
+    register_button(posX + pos_offsetX, titlerowY, 9, 12, 12, osc_styles.vidtitle, "▶", eventresponder, metainfo)
     
     --
     -- Big buttons
     --
 
-    local bbposY = posY - pos_offsetY + 35
+    local bigbuttonrowY = posY - pos_offsetY + 35
+    local bigbuttondistance = 60
 
     --play/pause
     local contentF = function (ass)
@@ -585,7 +588,7 @@ function osc_init()
     end
     local eventresponder = {}
     eventresponder.mouse_btn0_up = function () mp.send_command("no-osd cycle pause") end
-    register_button(posX, bbposY, 5, 40, 40, osc_styles.bigButtons, contentF, eventresponder, nil)
+    register_button(posX, bigbuttonrowY, 5, 40, 40, osc_styles.bigButtons, contentF, eventresponder, nil)
 
     --skipback
     local metainfo = {}
@@ -595,14 +598,14 @@ function osc_init()
     eventresponder.mouse_btn0_down = function () mp.send_command("no-osd seek -5 relative keyframes") end
     eventresponder["shift+mouse_btn0_down"] = function () mp.send_command("no-osd frame_back_step") end
     eventresponder.mouse_btn2_down = function () mp.send_command("no-osd seek -30 relative keyframes") end
-    register_button(posX-60, bbposY, 5, 40, 40, osc_styles.bigButtons, "\238\128\132", eventresponder, metainfo)
+    register_button(posX - bigbuttondistance, bigbuttonrowY, 5, 40, 40, osc_styles.bigButtons, "\238\128\132", eventresponder, metainfo)
 
     --skipfrwd
     local eventresponder = {}
     eventresponder.mouse_btn0_down = function () mp.send_command("no-osd seek 10 relative keyframes") end
     eventresponder["shift+mouse_btn0_down"] = function () mp.send_command("no-osd frame_step") end
     eventresponder.mouse_btn2_down = function () mp.send_command("no-osd seek 60 relative keyframes") end
-    register_button(posX+60, bbposY, 5, 40, 40, osc_styles.bigButtons, "\238\128\133", eventresponder, metainfo)
+    register_button(posX + bigbuttondistance, bigbuttonrowY, 5, 40, 40, osc_styles.bigButtons, "\238\128\133", eventresponder, metainfo)
 
     --chapters
     -- do we have any?
@@ -622,13 +625,13 @@ function osc_init()
         
     end
     eventresponder["shift+mouse_btn0_up"] = function () show_message(mp.property_get("chapter-list"), 3) end
-    register_button(posX-120, bbposY, 5, 40, 40, osc_styles.bigButtons, "\238\132\132", eventresponder, metainfo)
+    register_button(posX - (bigbuttondistance * 2), bigbuttonrowY, 5, 40, 40, osc_styles.bigButtons, "\238\132\132", eventresponder, metainfo)
 
     --next
     local eventresponder = {}
     eventresponder.mouse_btn0_up = function () mp.send_command("osd-msg add chapter 1") end
     eventresponder["shift+mouse_btn0_up"] = function () show_message(mp.property_get("chapter-list"), 3) end
-    register_button(posX+120, bbposY, 5, 40, 40, osc_styles.bigButtons, "\238\132\133", eventresponder, metainfo)
+    register_button(posX + (bigbuttondistance * 2), bigbuttonrowY, 5, 40, 40, osc_styles.bigButtons, "\238\132\133", eventresponder, metainfo)
 
 
     --
@@ -673,7 +676,7 @@ function osc_init()
         eventresponder.mouse_btn2_up = function () mp.send_command("osd-msg add audio -1")  end
     end
 
-    register_button(posX-pos_offsetX, bbposY, 1, 70, 18, osc_styles.smallButtonsL, contentF, eventresponder, metainfo)
+    register_button(posX - pos_offsetX, bigbuttonrowY, 1, 70, 18, osc_styles.smallButtonsL, contentF, eventresponder, metainfo)
     
 
     --cycle sub tracks
@@ -709,7 +712,7 @@ function osc_init()
         eventresponder.mouse_btn0_up = function () mp.send_command("osd-msg add sub 1") end
         eventresponder.mouse_btn2_up = function () mp.send_command("osd-msg add sub -1")  end
     end
-    register_button(posX-pos_offsetX, bbposY, 7, 70, 18, osc_styles.smallButtonsL, contentF, eventresponder, metainfo)
+    register_button(posX - pos_offsetX, bigbuttonrowY, 7, 70, 18, osc_styles.smallButtonsL, contentF, eventresponder, metainfo)
 
 
     --toggle FS
@@ -722,7 +725,7 @@ function osc_init()
     end
     local eventresponder = {}
     eventresponder.mouse_btn0_up = function () mp.send_command("no-osd cycle fullscreen") end
-    register_button(posX+pos_offsetX, bbposY, 6, 25, 25, osc_styles.smallButtonsR, contentF, eventresponder, nil)
+    register_button(posX+pos_offsetX, bigbuttonrowY, 6, 25, 25, osc_styles.smallButtonsR, contentF, eventresponder, nil)
 
 
     --
@@ -768,7 +771,7 @@ function osc_init()
     -- Timecodes + Volume
     --
 
-    local bottom_line = posY + pos_offsetY - 5
+    local bottomrowY = posY + pos_offsetY - 5
 
     -- left (current pos)
     local metainfo = {}
@@ -783,7 +786,7 @@ function osc_init()
     end
 
     eventresponder.mouse_btn0_up = function () state.tc_ms = not state.tc_ms end
-    register_button(posX - pos_offsetX, bottom_line, 4, 110, 18, osc_styles.timecodes, contentF, eventresponder, metainfo)
+    register_button(posX - pos_offsetX, bottomrowY, 4, 110, 18, osc_styles.timecodes, contentF, eventresponder, metainfo)
 
     -- right (total/remaining time)
     -- do we have a usuable duration?
@@ -808,7 +811,7 @@ function osc_init()
     local eventresponder = {}
     eventresponder.mouse_btn0_up = function () state.rightTC_trem = not state.rightTC_trem end
 
-    register_button(posX + pos_offsetX, bottom_line, 6, 110, 18, osc_styles.timecodes, contentF, eventresponder, metainfo)
+    register_button(posX + pos_offsetX, bottomrowY, 6, 110, 18, osc_styles.timecodes, contentF, eventresponder, metainfo)
 
     -- Volume Slider
     --[[
@@ -835,7 +838,7 @@ function osc_init()
     eventresponder.mouse_move = sliderF
     eventresponder.mouse_btn0_down = sliderF
     eventresponder.mouse_btn2_up = function ()  mp.send_command("no-osd set volume 100") end
-    register_slider(posX,bottom_line, 5, 150, 12, osc_styles.timecodes, 0, 100, nil, posF, eventresponder, metainfo)
+    register_slider(posX,bottomrowY, 5, 150, 12, osc_styles.timecodes, 0, 100, nil, posF, eventresponder, metainfo)
     --]]
 
 end
