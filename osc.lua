@@ -125,21 +125,6 @@ function countone(val)
     return val
 end
 
-function build_tracklist(tracks)
-    local msg = ""
-    if #tracks == 0 then
-        msg = "none"
-    else
-        for n = 1, #tracks do 
-            local lang, title = "unkown", ""
-            if not(tracks[n].language == nil) then lang = tracks[n].language end
-            if not(tracks[n].title == nil) then title = tracks[n].title end
-            msg = msg .. "\n" .. countone(n - 1) .. ": [" .. lang .. "] " .. title
-        end
-    end
-    return msg
-end
-
 -- align:  -1 .. +1
 -- frame:  size of the containing area
 -- obj:    size of the object that should be positioned inside the area
@@ -147,6 +132,96 @@ end
 function get_align(align, frame, obj, margin)
     return (frame / 2) + (((frame / 2) - margin - (obj / 2)) * align)
 end
+
+--
+-- Tracklist Management
+--
+
+local nicetypes = {video = "Video", audio = "Audio", sub = "Subtitle"}
+
+-- updates the OSC internal playlists, should be run each time the track-layout changes
+function update_tracklist()
+    local tracktable = mp.get_track_list()
+
+    -- by osc_id
+    tracks_osc = {}
+    tracks_osc.video, tracks_osc.audio, tracks_osc.sub = {}, {}, {}
+    -- by mpv_id
+    tracks_mpv = {}
+    tracks_mpv.video, tracks_mpv.audio, tracks_mpv.sub = {}, {}, {}
+    for n = 1, #tracktable do
+        if not (tracktable[n].type == "unkown") then
+            local type = tracktable[n].type
+            local mpv_id = tonumber(tracktable[n].id)
+
+            -- by osc_id
+            table.insert(tracks_osc[type], tracktable[n])
+
+            -- by mpv_id
+            tracks_mpv[type][mpv_id] = tracktable[n]
+            tracks_mpv[type][mpv_id].osc_id = #tracks_osc[type]
+        end
+    end
+end
+
+-- return a nice list of tracks of the given type (video, audio, sub)
+function get_tracklist(type)
+    local msg = "Available " .. nicetypes[type] .. " Tracks: "
+    local select_scale = 100
+    if #tracks_osc[type] == 0 then
+        msg = msg .. "none"
+    else
+        for n = 1, #tracks_osc[type] do 
+            local track = tracks_osc[type][n]
+            local lang, title, selected = "unkown", "", "{\\fscx" .. select_scale .. "\\fscy" .. select_scale .. "}○{\\fscx100\\fscy100}"
+            if not(track.language == nil) then lang = track.language end
+            if not(track.title == nil) then title = track.title end
+            if (track.id == tonumber(mp.property_get(type))) then
+                selected = "{\\fscx" .. select_scale .. "\\fscy" .. select_scale .. "}●{\\fscx100\\fscy100}"
+            end
+            msg = msg .. "\n" .. selected .. " " .. n .. ": [" .. lang .. "] " .. title
+        end
+    end
+    return msg
+end
+
+-- relatively change the track of given <type> by <next> tracks (+1 -> next, -1 -> previous)
+function set_track(type, next)
+    local current_track_mpv, current_track_osc
+    if (mp.property_get(type) == "no") then
+        current_track_osc = 0
+    else
+        current_track_mpv = tonumber(mp.property_get(type))
+        current_track_osc = tracks_mpv[type][current_track_mpv].osc_id
+    end
+    local new_track_osc = (current_track_osc + next) % (#tracks_osc[type] + 1)
+    local new_track_mpv
+    if new_track_osc == 0 then
+        new_track_mpv = "no"
+    else
+        new_track_mpv = tracks_osc[type][new_track_osc].id
+    end
+
+    mp.send_command("no-osd set " .. type .. " " .. new_track_mpv)
+
+        if (new_track_osc == 0) then
+        show_message(nicetypes[type] .. " Track: none")
+    else
+        show_message(nicetypes[type]  .. " Track: " .. new_track_osc .. "/" .. #tracks_osc[type]
+            .. " [" .. (tracks_osc[type][new_track_osc].language or "unkown") .. "] " .. (tracks_osc[type][new_track_osc].title or ""))
+    end
+end
+
+-- get the currently selected track of <type>, OSC-style counted
+function get_track(type)
+    local current_track_mpv, current_track_osc
+    if (mp.property_get(type) == "no") then
+        return 0
+    else
+        return tracks_mpv[type][tonumber(mp.property_get(type))].osc_id
+    end
+end
+
 
 --
 -- Element Management
@@ -159,9 +234,9 @@ function register_element(type, x, y, an, w, h, style, content, eventresponder, 
     -- an               alignment (see ASS standard)
     -- w, h             size of hitbox
     -- style            main style
-    -- content          what the element should display, can be a string of a function(ass)
+    -- content          what the element should display, can be a string or a function(ass)
     -- eventresponder   A table containing functions mapped to events that shall be run on those events
-    -- metainfo         A table containing additional parameters for the element, currently "enabled", "visible", "styledown" (all default to true)
+    -- metainfo         A table containing additional parameters for the element
 
     -- set default metainfo
     local metainfo = {}
@@ -368,10 +443,10 @@ function show_message(text, duration)
         duration = tonumber(mp.property_get("options/osd-duration")) / 1000
     end
 
-    -- cut the text short, otherwise the following functions may slow down massively on huge playlists
+    -- cut the text short, otherwise the following functions may slow down massively on huge input
     text = string.sub(text, 0, 4000)
 
-    -- replace actual linebreaks with ASS linebreaks and get the ammount of lines along the way
+    -- replace actual linebreaks with ASS linebreaks and get the amount of lines along the way
     local lines
     text, lines = string.gsub(text, "\n", "\\N")
 
@@ -380,14 +455,14 @@ function show_message(text, duration)
     text = string.gsub(text, "_", "_\226\128\139")
 
     -- scale the fontsize for longer multi-line output
-    local fontsize = tonumber(mp.property_get("options/osd-font-size"))
+    local fontsize, outline = tonumber(mp.property_get("options/osd-font-size")), tonumber(mp.property_get("options/osd-border-size"))
     if lines > 12 then
-        fontsize = fontsize / 2
+        fontsize, outline = fontsize / 2, outline / 1.5
     elseif lines > 8 then
-        fontsize = fontsize / 1.5
+        fontsize, outline = fontsize / 1.5, outline / 1.25
     end
 
-    local style = "{\\bord" .. tonumber(mp.property_get("options/osd-border-size")) .. "\\fs" .. fontsize .. "}"
+    local style = "{\\bord" .. outline .. "\\fs" .. fontsize .. "}"
 
     state.message_text = style .. text
     state.message_timeout = mp.get_timer() + duration
@@ -560,64 +635,27 @@ function osc_init()
     -- Smaller buttons
     --
 
-    --get video/audio/sub track counts
-    local tracktable = mp.get_track_list()
-    local videotracks, audiotracks, subtracks = {}, {}, {}
-    for n = 1, #tracktable do
-        if tracktable[n].type == "video" then
-            table.insert(videotracks, tracktable[n])
-        elseif tracktable[n].type == "audio" then
-            table.insert(audiotracks, tracktable[n])
-        elseif tracktable[n].type == "sub" then
-            table.insert(subtracks, tracktable[n])
-        end
-    end
+    update_tracklist()
 
     --cycle audio tracks
 
     local contentF = function (ass)
-        local aid = ""
-        if (mp.property_get("audio") == "no") then
-            aid = "–"
-        else
-            aid = countone(tonumber(mp.property_get("audio")))
+        local aid = "–"
+        if not (get_track("audio") == 0) then
+            aid = get_track("audio")
         end
-        ass:append("\238\132\134 " .. osc_styles.smallButtonsLlabel .. aid .. "/" .. #audiotracks)
+        ass:append("\238\132\134 " .. osc_styles.smallButtonsLlabel .. aid .. "/" .. #tracks_osc.audio)
     end
 
     -- do we have any?
     local metainfo = {}
-    metainfo.enabled = (#audiotracks > 0)
+    metainfo.enabled = (#tracks_osc.audio > 0)
 
     local eventresponder = {}
-    --[[ This is shit.
-    eventresponder.mouse_btn0_up = function ()
-        mp.send_command("no-osd add audio 1")
-        if (mp.property_get("audio") == "no") then
-            mp.send_command("show_text \"".. "Audio Track: none" .."\"")
-        else
-            local new_aid = tonumber(mp.property_get("audio"))
-            local msg = "Audio Track: " .. countone(new_aid) .. "/" .. #audiotracks
-                .. " [" .. audiotracks[new_aid + 1].language .. "] " .. audiotracks[new_aid + 1].title
-            mp.send_command("show_text \"".. msg .."\"")
-        end
-    end
-    eventresponder.mouse_btn2_up = function ()
-        mp.send_command("no-osd add audio -1")
-        if (mp.property_get("audio") == "no") then
-            mp.send_command("show_text \"".. "Audio Track: none" .."\"")
-        else
-            local new_aid = tonumber(mp.property_get("audio"))
-            local msg = "Audio Track: " .. countone(new_aid) .. "/" .. #audiotracks
-                .. " [" .. audiotracks[new_aid + 1].language .. "] " .. audiotracks[new_aid + 1].title
-            mp.send_command("show_text \"".. msg .."\"")
-        end
-    end
-    --]]
-    eventresponder.mouse_btn0_up = function () mp.send_command("add audio 1") end
-    eventresponder.mouse_btn2_up = function () mp.send_command("add audio -1") end
+    eventresponder.mouse_btn0_up = function () set_track("audio", 1) end
+    eventresponder.mouse_btn2_up = function () set_track("audio", -1) end
     eventresponder["shift+mouse_btn0_down"] = function ()
-        show_message("Available Audio Tracks: " .. build_tracklist(audiotracks), 2)
+        show_message(get_tracklist("audio"), 2)
     end
     register_button(posX-pos_offsetX, bbposY, 1, 70, 18, osc_styles.smallButtonsL, contentF, eventresponder, metainfo)
     
@@ -625,48 +663,22 @@ function osc_init()
     --cycle sub tracks
     
     local contentF = function (ass)
-        local sid = ""
-        if (mp.property_get("sub") == "no") then
-            sid = "–"
-        else
-            sid = countone(tonumber(mp.property_get("sub")))
+        local sid = "–"
+        if not (get_track("sub") == 0) then
+            sid = get_track("sub")
         end
-        ass:append("\238\132\135 " .. osc_styles.smallButtonsLlabel .. sid .. "/" .. #subtracks)
+        ass:append("\238\132\135 " .. osc_styles.smallButtonsLlabel .. sid .. "/" .. #tracks_osc.sub)
     end
     
     -- do we have any?
     local metainfo = {}
-    metainfo.enabled = (#subtracks > 0)
+    metainfo.enabled = (#tracks_osc.sub > 0)
     
     local eventresponder = {}
-    --[[ This is also shit.
-    eventresponder.mouse_btn0_up = function ()
-        mp.send_command("no-osd add sub 1")
-        if (mp.property_get("sub") == "no") then
-            mp.send_command("show_text \"".. "Subtitle Track: none" .."\"")
-        else
-            local new_sid = tonumber(mp.property_get("sub"))
-            local msg = "Subtitle Track: " .. countone(new_sid) .. "/" .. #subtracks 
-                .. " [" .. subtracks[new_sid + 1].language .. "] " .. subtracks[new_sid + 1].title
-            mp.send_command("show_text \"".. msg .."\"")
-        end
-    end
-    eventresponder.mouse_btn2_up = function ()
-        mp.send_command("no-osd add sub -1")
-        if (mp.property_get("sub") == "no") then
-            mp.send_command("show_text \"".. "Subtitle Track: none" .."\"")
-        else
-            local new_sid = tonumber(mp.property_get("sub"))
-            local msg = "Subtitle Track: " .. countone(new_sid) .. "/" .. #subtracks 
-                .. " [" .. subtracks[new_sid + 1].language .. "] " .. subtracks[new_sid + 1].title
-            mp.send_command("show_text \"".. msg .."\"")
-        end
-    end
-    --]]
-    eventresponder.mouse_btn0_up = function () mp.send_command("add sub 1") end
-    eventresponder.mouse_btn2_up = function () mp.send_command("add sub -1") end
+    eventresponder.mouse_btn0_up = function () set_track("sub", 1) end
+    eventresponder.mouse_btn2_up = function () set_track("sub", -1) end
     eventresponder["shift+mouse_btn0_down"] = function ()
-        show_message("Available Subtitle Tracks: " .. build_tracklist(subtracks), 2)
+        show_message(get_tracklist("sub"), 2)
     end
     register_button(posX-pos_offsetX, bbposY, 7, 70, 18, osc_styles.smallButtonsL, contentF, eventresponder, metainfo)
 
@@ -782,7 +794,6 @@ function osc_init()
 
 
     local metainfo = {}
-    -- metainfo.enabled = (not (mp.property_get("length") == nil)) and (tonumber(mp.property_get("length")) > 0)
     metainfo.styledown = false
     metainfo.slider = {}
     metainfo.slider.border = 1
@@ -797,8 +808,6 @@ function osc_init()
     eventresponder.mouse_btn2_up = function ()  mp.send_command("no-osd set volume 100") end
     register_slider(posX,bottom_line, 5, 150, 12, osc_styles.timecodes, 0, 100, nil, posF, eventresponder, metainfo)
     --]]
-
-
 
 end
 
