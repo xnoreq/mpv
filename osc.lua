@@ -13,7 +13,7 @@ local osc_param = {
     valign = 0.8,                           -- vertical alignment, -1 (top) to 1 (bottom)
     halign = 0,                             -- horizontal alignment, -1 (left) to 1 (right)
     deadzonedist = 0.15,                    -- distance between OSC and deadzone
-    iAmAProgrammer = false,                 -- start counting stuff at 0
+    iAmAProgrammer = false,                 -- start counting stuff at 0 and disable OSC internal playlist management (and some functions that depend on it)
 
     -- not user-safe
     osc_w = 550,                            -- width, height, corner-radius, padding of the OSC box
@@ -635,50 +635,79 @@ function osc_init()
     -- Smaller buttons
     --
 
-    update_tracklist()
+    if not (osc_param.iAmAProgrammer) then
+        update_tracklist()
+    end
 
     --cycle audio tracks
 
-    local contentF = function (ass)
-        local aid = "–"
-        if not (get_track("audio") == 0) then
-            aid = get_track("audio")
-        end
-        ass:append("\238\132\134 " .. osc_styles.smallButtonsLlabel .. aid .. "/" .. #tracks_osc.audio)
-    end
-
-    -- do we have any?
     local metainfo = {}
-    metainfo.enabled = (#tracks_osc.audio > 0)
-
     local eventresponder = {}
-    eventresponder.mouse_btn0_up = function () set_track("audio", 1) end
-    eventresponder.mouse_btn2_up = function () set_track("audio", -1) end
-    eventresponder["shift+mouse_btn0_down"] = function ()
-        show_message(get_tracklist("audio"), 2)
+    local contentF
+
+    if not (osc_param.iAmAProgrammer) then
+        metainfo.enabled = (#tracks_osc.audio > 0)
+
+        contentF = function (ass)
+            local aid = "–"
+            if not (get_track("audio") == 0) then
+                aid = get_track("audio")
+            end
+            ass:append("\238\132\134 " .. osc_styles.smallButtonsLlabel .. aid .. "/" .. #tracks_osc.audio)
+        end
+
+        eventresponder.mouse_btn0_up = function () set_track("audio", 1) end
+        eventresponder.mouse_btn2_up = function () set_track("audio", -1) end
+        eventresponder["shift+mouse_btn0_down"] = function ()
+            show_message(get_tracklist("audio"), 2)
+        end
+    else
+        metainfo.enabled = true
+        contentF = function (ass)
+            local aid = mp.property_get("audio")
+            
+            ass:append("\238\132\134 " .. osc_styles.smallButtonsLlabel .. aid)
+        end
+
+        eventresponder.mouse_btn0_up = function () mp.send_command("osd-msg add audio 1") end
+        eventresponder.mouse_btn2_up = function () mp.send_command("osd-msg add audio -1")  end
     end
+
     register_button(posX-pos_offsetX, bbposY, 1, 70, 18, osc_styles.smallButtonsL, contentF, eventresponder, metainfo)
     
 
     --cycle sub tracks
-    
-    local contentF = function (ass)
-        local sid = "–"
-        if not (get_track("sub") == 0) then
-            sid = get_track("sub")
-        end
-        ass:append("\238\132\135 " .. osc_styles.smallButtonsLlabel .. sid .. "/" .. #tracks_osc.sub)
-    end
-    
-    -- do we have any?
+
     local metainfo = {}
-    metainfo.enabled = (#tracks_osc.sub > 0)
-    
     local eventresponder = {}
-    eventresponder.mouse_btn0_up = function () set_track("sub", 1) end
-    eventresponder.mouse_btn2_up = function () set_track("sub", -1) end
-    eventresponder["shift+mouse_btn0_down"] = function ()
-        show_message(get_tracklist("sub"), 2)
+    local contentF
+    
+    if not (osc_param.iAmAProgrammer) then
+        metainfo.enabled = (#tracks_osc.sub > 0)
+
+        contentF = function (ass)
+            local sid = "–"
+            if not (get_track("sub") == 0) then
+                sid = get_track("sub")
+            end
+            ass:append("\238\132\135 " .. osc_styles.smallButtonsLlabel .. sid .. "/" .. #tracks_osc.sub)
+        end
+        
+        eventresponder.mouse_btn0_up = function () set_track("sub", 1) end
+        eventresponder.mouse_btn2_up = function () set_track("sub", -1) end
+        eventresponder["shift+mouse_btn0_down"] = function ()
+            show_message(get_tracklist("sub"), 2)
+        end
+    else
+        metainfo.enabled = true
+        contentF = function (ass)
+            local sid = mp.property_get("sub")
+            
+            ass:append("\238\132\135 " .. osc_styles.smallButtonsLlabel .. sid)
+        end
+
+        eventresponder.mouse_btn0_up = function () mp.send_command("osd-msg add sub 1") end
+        eventresponder.mouse_btn2_up = function () mp.send_command("osd-msg add sub -1")  end
     end
     register_button(posX-pos_offsetX, bbposY, 7, 70, 18, osc_styles.smallButtonsL, contentF, eventresponder, metainfo)
 
@@ -988,10 +1017,7 @@ function process_event(source, what)
                 end
             end
         end
-
-
     end
-
 end
 
 function mp_event(name, arg)
