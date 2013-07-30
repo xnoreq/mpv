@@ -29,10 +29,10 @@ local osc_param = {
 }
 
 local osc_styles = {
-    bigButtons = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs50\\fnosd-font}",
-    smallButtonsL = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs20\\fnosd-font}",
+    bigButtons = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs50\\fnmpv-osd-symbols}",
+    smallButtonsL = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs20\\fnmpv-osd-symbols}",
     smallButtonsLlabel = "{\\fs17\\fn" .. mp.property_get("options/osd-font") .. "}",
-    smallButtonsR = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs30\\fnosd-font}",
+    smallButtonsR = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs30\\fnmpv-osd-symbols}",
 
     elementDown = "{\\1c&H999999}",
     elementDisab = "{\\1a&H88&}",
