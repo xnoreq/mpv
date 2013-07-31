@@ -316,6 +316,7 @@ function register_slider(x, y, an, w, h, style, min, max, markerF, posF, eventre
     if max == nil then metainfo.slider.max = 100 else metainfo.slider.max = max end
     if metainfo.slider.border == nil then metainfo.slider.border = 1 end
     if metainfo.slider.gap == nil then metainfo.slider.gap = 2 end
+    if metainfo.slider.type == nil then metainfo.slider.type = "slider" end
 
     metainfo.slider.markerF = markerF
     metainfo.slider.posF = posF
@@ -335,7 +336,7 @@ function register_slider(x, y, an, w, h, style, min, max, markerF, posF, eventre
     ass:rect_ccw(border, border, w - border, h - border)
 
     -- marker nibbles
-    if not (markerF == nil) then
+    if not (markerF == nil) and gap > 0 then
         local markers = markerF()
         for n = 1, #markers do
             if (markers[n] > min) and (markers[n] < max) then
@@ -344,8 +345,24 @@ function register_slider(x, y, an, w, h, style, min, max, markerF, posF, eventre
 
                 local s = scale_value(min, max, coordL, coordR, markers[n])
 
-                ass:rect_cw(s - 0.5, border, s + 0.5, border*2);
-                ass:rect_cw(s - 0.5, h - border*2, s + 0.5, h - border); 
+                if gap > 1 then
+                    -- draw triangles
+                    local a = gap / 0.5 --0.866
+                    --top
+                    ass:move_to(s - (a/2), border)
+                    ass:line_to(s + (a/2), border)
+                    ass:line_to(s, border + gap)
+
+                    --bottom
+                    ass:move_to(s - (a/2), h - border)
+                    ass:line_to(s, h - border - gap)
+                    ass:line_to(s + (a/2), h - border)
+
+                else
+                    -- draw 1px nibbles
+                    ass:rect_cw(s - 0.5, border, s + 0.5, border*2);
+                    ass:rect_cw(s - 0.5, h - border*2, s + 0.5, h - border);
+                end
 
             end
         end
@@ -411,13 +428,15 @@ function render_elements(master_ass)
             -- the filling, draw it only if positive
             local innerH = element.h - (2*fill_offsetV)
 
-            
-            --elem_ass:rect_cw(fill_offset, fill_offset, xp, element.h - fill_offset)
-            --elem_ass:round_rect_cw(xp-(innerH/2), fill_offset, xp+(innerH/2), element.h - fill_offset, innerH*1.25)
-            elem_ass:move_to(xp, fill_offsetV)
-            elem_ass:line_to(xp+(innerH/2), (innerH/2)+fill_offsetV)
-            elem_ass:line_to(xp, (innerH)+fill_offsetV)
-            elem_ass:line_to(xp-(innerH/2), (innerH/2)+fill_offsetV)
+            if element.metainfo.slider.type == "bar" then
+                elem_ass:rect_cw(fill_offsetV, fill_offsetV, xp, element.h - fill_offsetV)
+                --elem_ass:round_rect_cw(xp-(innerH/2), fill_offsetV, xp+(innerH/2), element.h - fill_offsetV, innerH*1.25)
+            else
+                elem_ass:move_to(xp, fill_offsetV)
+                elem_ass:line_to(xp+(innerH/2), (innerH/2)+fill_offsetV)
+                elem_ass:line_to(xp, (innerH)+fill_offsetV)
+                elem_ass:line_to(xp-(innerH/2), (innerH/2)+fill_offsetV)
+            end
 
             elem_ass:draw_stop()
 
@@ -753,7 +772,8 @@ function osc_init()
     metainfo.styledown = false
     metainfo.slider = {}
     metainfo.slider.border = 1
-    metainfo.slider.gap = 1
+    metainfo.slider.gap = 1             -- >1 will draw triangle markers
+    metainfo.slider.type = "slider"     -- "bar" for old bar-style filling
 
     local eventresponder = {}
     local sliderF = function (element)
