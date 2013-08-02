@@ -1701,13 +1701,6 @@ static const m_option_t mp_properties[] = {
     { "playlist-pos", mp_property_playlist_pos, CONF_TYPE_INT },
     { "playlist-count", mp_property_playlist_count, CONF_TYPE_INT },
 
-    { "playlist-pos", mp_property_playlist_pos, CONF_TYPE_INT },
-    { "playlist-count", mp_property_playlist_count, CONF_TYPE_INT },
-
-    { "chapter-list", mp_property_list_chapters, CONF_TYPE_STRING },
-    { "track-list", property_list_tracks, CONF_TYPE_STRING },
-    { "playlist", mp_property_playlist, CONF_TYPE_STRING },
-
     // Audio
     { "volume", mp_property_volume, CONF_TYPE_FLOAT,
       M_OPT_RANGE, 0, 100, NULL },
