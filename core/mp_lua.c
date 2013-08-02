@@ -243,7 +243,11 @@ static int set_osd_ass(lua_State *L)
     int res_x = luaL_checkinteger(L, 1);
     int res_y = luaL_checkinteger(L, 2);
     const char *text = luaL_checkstring(L, 3);
-    if (!mpctx->osd->external || strcmp(mpctx->osd->external, text) != 0) {
+    if (!mpctx->osd->external ||
+        strcmp(mpctx->osd->external, text) != 0 ||
+        mpctx->osd->external_res_x != res_x ||
+        mpctx->osd->external_res_y != res_y)
+    {
         talloc_free(mpctx->osd->external);
         mpctx->osd->external = talloc_strdup(mpctx->osd, text);
         mpctx->osd->external_res_x = res_x;
