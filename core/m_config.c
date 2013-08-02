@@ -54,20 +54,21 @@ struct m_opt_backup {
     void *backup;
 };
 
-static int parse_include(struct m_config *config, struct bstr param, bool set)
+static int parse_include(struct m_config *config, struct bstr param, bool set,
+                         int flags)
 {
     if (param.len == 0)
         return M_OPT_MISSING_PARAM;
     if (!set)
         return 1;
     char *filename = bstrdup0(NULL, param);
-    config->includefunc(config, filename);
+    config->includefunc(config, filename, flags);
     talloc_free(filename);
     return 1;
 }
 
 static int parse_profile(struct m_config *config, const struct m_option *opt,
-                         struct bstr name, struct bstr param, bool set)
+                         struct bstr name, struct bstr param, bool set, int flags)
 {
     if (!bstrcmp0(param, "help")) {
         struct m_profile *p;
@@ -97,7 +98,7 @@ static int parse_profile(struct m_config *config, const struct m_option *opt,
                     list[i]);
             r = M_OPT_INVALID;
         } else if (set)
-            m_config_set_profile(config, p);
+            m_config_set_profile(config, p, flags);
     }
     m_option_free(opt, &list);
     return r;
@@ -182,8 +183,7 @@ static void add_options(struct m_config *config,
 static int config_destroy(void *p)
 {
     struct m_config *config = p;
-    if (config->file_local_mode)
-        m_config_leave_file_local(config);
+    m_config_restore_backups(config);
     for (struct m_config_option *copt = config->opts; copt; copt = copt->next)
         m_option_free(copt->opt, copt->data);
     return 0;
@@ -257,8 +257,6 @@ int m_config_initialize_obj(struct m_config *config, struct m_obj_desc *desc,
 
 static void ensure_backup(struct m_config *config, struct m_config_option *co)
 {
-    if (!config->file_local_mode)
-        return;
     if (co->opt->type->flags & M_OPT_TYPE_HAS_CHILD)
         return;
     if (co->opt->flags & M_OPT_GLOBAL)
@@ -279,20 +277,8 @@ static void ensure_backup(struct m_config *config, struct m_config_option *co)
     config->backup_opts = bc;
 }
 
-void m_config_enter_file_local(struct m_config *config)
+void m_config_restore_backups(struct m_config *config)
 {
-    assert(!config->file_local_mode);
-    config->file_local_mode = true;
-    for (struct m_config_option *co = config->opts; co; co = co->next) {
-        if (co->opt->flags & M_OPT_LOCAL)
-            ensure_backup(config, co);
-    }
-}
-
-void m_config_leave_file_local(struct m_config *config)
-{
-    assert(config->file_local_mode);
-    config->file_local_mode = false;
     while (config->backup_opts) {
         struct m_opt_backup *bc = config->backup_opts;
         config->backup_opts = bc->next;
@@ -303,7 +289,7 @@ void m_config_leave_file_local(struct m_config *config)
     }
 }
 
-void m_config_mark_file_local(struct m_config *config, const char *opt)
+void m_config_backup_opt(struct m_config *config, const char *opt)
 {
     struct m_config_option *co = m_config_get_co(config, bstr0(opt));
     if (co) {
@@ -313,7 +299,7 @@ void m_config_mark_file_local(struct m_config *config, const char *opt)
     }
 }
 
-void m_config_mark_all_file_local(struct m_config *config)
+void m_config_backup_all_opts(struct m_config *config)
 {
     for (struct m_config_option *co = config->opts; co; co = co->next)
         ensure_backup(config, co);
@@ -346,8 +332,7 @@ static void add_negation_option(struct m_config *config,
     *no_opt = (struct m_option) {
         .name = talloc_asprintf(no_opt, "no-%s", opt->name),
         .type = CONF_TYPE_STORE,
-        .flags = opt->flags & (M_OPT_NOCFG | M_OPT_GLOBAL | M_OPT_LOCAL |
-                               M_OPT_PRE_PARSE),
+        .flags = opt->flags & (M_OPT_NOCFG | M_OPT_GLOBAL | M_OPT_PRE_PARSE),
         .new = opt->new,
         .p = opt->p,
         .offset = opt->offset,
@@ -500,11 +485,11 @@ const char *m_config_get_positional_option(const struct m_config *config, int n)
     return NULL;
 }
 
-static int parse_subopts(struct m_config *config, void *optstruct, char *name,
-                         char *prefix, struct bstr param, int flags);
+static int parse_subopts(struct m_config *config, char *name, char *prefix,
+                         struct bstr param, int flags);
 
-static int m_config_parse_option(struct m_config *config, void *optstruct,
-                                 struct bstr name, struct bstr param, int flags)
+static int m_config_parse_option(struct m_config *config, struct bstr name,
+                                 struct bstr param, int flags)
 {
     assert(config != NULL);
     assert(name.len != 0);
@@ -527,17 +512,21 @@ static int m_config_parse_option(struct m_config *config, void *optstruct,
                 BSTR_P(name));
         return M_OPT_INVALID;
     }
-    if (config->file_local_mode && (co->opt->flags & M_OPT_GLOBAL)) {
-        mp_tmsg(MSGT_CFGPARSER, MSGL_ERR,
-                "The %.*s option is global and can't be set per-file.\n",
-                BSTR_P(name));
-        return M_OPT_INVALID;
+    if (flags & M_SETOPT_BACKUP) {
+        if (co->opt->flags & M_OPT_GLOBAL) {
+            mp_tmsg(MSGT_CFGPARSER, MSGL_ERR,
+                    "The %.*s option is global and can't be set per-file.\n",
+                    BSTR_P(name));
+            return M_OPT_INVALID;
+        }
+        if (set)
+            ensure_backup(config, co);
     }
 
     if (config->includefunc && bstr_equals0(name, "include"))
-        return parse_include(config, param, set);
+        return parse_include(config, param, set, flags);
     if (config->use_profiles && bstr_equals0(name, "profile"))
-        return parse_profile(config, co->opt, name, param, set);
+        return parse_profile(config, co->opt, name, param, set, flags);
     if (config->use_profiles && bstr_equals0(name, "show-profile"))
         return show_profile(config, param);
     if (bstr_equals0(name, "list-options"))
@@ -548,17 +537,14 @@ static int m_config_parse_option(struct m_config *config, void *optstruct,
         char prefix[110];
         assert(strlen(co->name) < 100);
         sprintf(prefix, "%s-", co->name);
-        return parse_subopts(config, optstruct, co->name, prefix, param, flags);
+        return parse_subopts(config, co->name, prefix, param, flags);
     }
-
-    if (set)
-        ensure_backup(config, co);
 
     return m_option_parse(co->opt, name, param, set ? co->data : NULL);
 }
 
-static int parse_subopts(struct m_config *config, void *optstruct, char *name,
-                         char *prefix, struct bstr param, int flags)
+static int parse_subopts(struct m_config *config, char *name, char *prefix,
+                         struct bstr param, int flags)
 {
     char **lst = NULL;
     // Split the argument into child options
@@ -571,8 +557,7 @@ static int parse_subopts(struct m_config *config, void *optstruct, char *name,
         char n[110];
         if (snprintf(n, 110, "%s%s", prefix, lst[2 * i]) > 100)
             abort();
-        r = m_config_parse_option(config, optstruct, bstr0(n),
-                                  bstr0(lst[2 * i + 1]), flags);
+        r = m_config_parse_option(config,bstr0(n), bstr0(lst[2 * i + 1]), flags);
         if (r < 0) {
             if (r > M_OPT_EXIT) {
                 mp_tmsg(MSGT_CFGPARSER, MSGL_ERR,
@@ -592,7 +577,7 @@ int m_config_parse_suboptions(struct m_config *config, char *name,
 {
     if (!subopts || !*subopts)
         return 0;
-    int r = parse_subopts(config, config->optstruct, name, "", bstr0(subopts), 0);
+    int r = parse_subopts(config, name, "", bstr0(subopts), 0);
     if (r < 0 && r > M_OPT_EXIT) {
         mp_tmsg(MSGT_CFGPARSER, MSGL_ERR, "Error parsing suboption %s (%s)\n",
                 name, m_option_strerror(r));
@@ -604,7 +589,7 @@ int m_config_parse_suboptions(struct m_config *config, char *name,
 int m_config_set_option_ext(struct m_config *config, struct bstr name,
                             struct bstr param, int flags)
 {
-    int r = m_config_parse_option(config, config->optstruct, name, param, flags);
+    int r = m_config_parse_option(config, name, param, flags);
     if (r < 0 && r > M_OPT_EXIT) {
         mp_tmsg(MSGT_CFGPARSER, MSGL_ERR, "Error parsing option %.*s (%s)\n",
                 BSTR_P(name), m_option_strerror(r));
@@ -764,7 +749,8 @@ int m_config_set_profile_option(struct m_config *config, struct m_profile *p,
     return 1;
 }
 
-void m_config_set_profile(struct m_config *config, struct m_profile *p)
+void m_config_set_profile(struct m_config *config, struct m_profile *p,
+                          int flags)
 {
     if (config->profile_depth > MAX_PROFILE_DEPTH) {
         mp_tmsg(MSGT_CFGPARSER, MSGL_WARN,
@@ -776,7 +762,7 @@ void m_config_set_profile(struct m_config *config, struct m_profile *p)
         m_config_set_option_ext(config,
                                 bstr0(p->opts[2 * i]),
                                 bstr0(p->opts[2 * i + 1]),
-                                M_SETOPT_FROM_CONFIG_FILE);
+                                flags | M_SETOPT_FROM_CONFIG_FILE);
     }
     config->profile_depth--;
 }

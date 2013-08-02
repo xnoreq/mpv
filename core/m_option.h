@@ -31,7 +31,6 @@
 
 typedef struct m_option_type m_option_type_t;
 typedef struct m_option m_option_t;
-struct m_struct_st;
 struct m_config;
 
 ///////////////////////////// Options types declarations ////////////////////
@@ -155,12 +154,6 @@ int m_obj_parse_sub_config(struct bstr opt_name, struct bstr name,
                            struct bstr *pstr, struct m_config *config,
                            int flags, char ***ret);
 
-// Parse an URL into a struct.
-/** The option priv field (\ref m_option::priv) must point to a
- *  \ref m_struct_st describing which fields of the URL must be used.
- */
-extern const m_option_type_t m_option_type_custom_url;
-
 struct m_opt_choice_alternatives {
     char *name;
     int value;
@@ -193,7 +186,6 @@ struct m_sub_options {
 #define CONF_TYPE_FOURCC        (&m_option_type_fourcc)
 #define CONF_TYPE_AFMT          (&m_option_type_afmt)
 #define CONF_TYPE_OBJ_SETTINGS_LIST (&m_option_type_obj_settings_list)
-#define CONF_TYPE_CUSTOM_URL    (&m_option_type_custom_url)
 #define CONF_TYPE_TIME          (&m_option_type_time)
 #define CONF_TYPE_CHOICE        (&m_option_type_choice)
 #define CONF_TYPE_INT_PAIR      (&m_option_type_intpair)
@@ -344,11 +336,6 @@ struct m_option {
 
 // This option can't be set per-file when used with struct m_config.
 #define M_OPT_GLOBAL            (1 << 4)
-
-// This option is always considered per-file when used with struct m_config.
-// When playback of a file ends, the option value will be restored to the value
-// from before playback begin.
-#define M_OPT_LOCAL             (1 << 5)
 
 // The option should be set during command line pre-parsing
 #define M_OPT_PRE_PARSE         (1 << 6)
