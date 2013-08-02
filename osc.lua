@@ -8,7 +8,8 @@ local assdraw = require 'assdraw'
 
 local osc_param = {
     -- user-safe
-    scale = 1,                              -- scaling of the controller
+    scaleWindow = 1,                        -- scaling of the controller when windowed
+    scaleFS = 1,                            -- scaling of the controller when fullscreen, differnet values = glitches
     vidscale = true,                        -- scale the controller with the video? don't use false, currently causes glitches
     valign = 0.8,                           -- vertical alignment, -1 (top) to 1 (bottom)
     halign = 0,                             -- horizontal alignment, -1 (left) to 1 (right)
@@ -51,7 +52,7 @@ local state = {
     tc_ms = false,                          -- Should the timecodes display their time with milliseconds
     mp_screen_sizeX, mp_screen_sizeY,       -- last screen-resolution, to detect resolution changes to issue reINITs
     initREQ = false,                        -- is a re-init request pending?
-    last_seek,                              -- last seek position, to avoid deadlocks be repeatedly seeking to the same position
+    last_seek,                              -- last seek position, to avoid deadlocks by repeatedly seeking to the same position
     message_text,
     message_timeout,
 }
@@ -298,7 +299,7 @@ function register_box(x, y, an, w, h, r, style, metainfo2)
     ass:draw_stop()
 
     local metainfo = {}
-    if not (metainfo2 == nil) then metainfo = metainfo2 end
+        if not (metainfo2 == nil) then metainfo = metainfo2 end
 
     metainfo.styledown = false
 
@@ -325,7 +326,7 @@ function register_slider(x, y, an, w, h, style, min, max, markerF, posF, eventre
     local ass = assdraw.ass_new()
     local border, gap = metainfo.slider.border, metainfo.slider.gap
     local fill_offsetV = border + gap       -- Vertical offset between element outline and drag-area
-    local fill_offsetH = h / 2       -- Horizontal offset between element outline and drag-area
+    local fill_offsetH = h / 2              -- Horizontal offset between element outline and drag-area
 
     ass:draw_start()
 
@@ -510,10 +511,19 @@ function osc_init()
     -- set canvas resolution acording to display aspect and scaleing setting
     local baseResY = 720
     local display_w, display_h, display_aspect = mp.get_screen_size()
-    if osc_param.vidscale == true then
-        osc_param.playresy = baseResY / osc_param.scale
+    local scale = 1
+
+    if (mp.property_get("fullscreen") == "yes") then
+        scale = osc_param.scaleFS
     else
-        osc_param.playresy = display_h / osc_param.scale
+        scale = osc_param.scaleWindow
+    end
+
+
+    if osc_param.vidscale == true then
+        osc_param.playresy = baseResY / scale
+    else
+        osc_param.playresy = display_h / scale
     end
     osc_param.playresx = osc_param.playresy * display_aspect
 
