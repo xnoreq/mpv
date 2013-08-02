@@ -121,8 +121,8 @@ void mp_lua_init(struct MPContext *mpctx)
 
     assert(lua_gettop(L) == 0);
 
-    if (mpctx->opts.lua_file)
-        mp_lua_load_file(mpctx, mpctx->opts.lua_file);
+    if (mpctx->opts->lua_file)
+        mp_lua_load_file(mpctx, mpctx->opts->lua_file);
 
     return;
 

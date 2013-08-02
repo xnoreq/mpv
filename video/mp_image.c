@@ -36,6 +36,16 @@
 #include "memcpy_pic.h"
 #include "fmt-conversion.h"
 
+#if HAVE_PTHREADS
+#include <pthread.h>
+static pthread_mutex_t refcount_mutex = PTHREAD_MUTEX_INITIALIZER;
+#define refcount_lock() pthread_mutex_lock(&refcount_mutex)
+#define refcount_unlock() pthread_mutex_unlock(&refcount_mutex)
+#else
+#define refcount_lock() 0
+#define refcount_unlock() 0
+#endif
+
 struct m_refcount {
     void *arg;
     // free() is called if refcount reaches 0.
@@ -70,18 +80,27 @@ static struct m_refcount *m_refcount_new(void)
 
 static void m_refcount_ref(struct m_refcount *ref)
 {
+    refcount_lock();
     ref->refcount++;
+    refcount_unlock();
+
     if (ref->ext_ref)
         ref->ext_ref(ref->arg);
 }
 
 static void m_refcount_unref(struct m_refcount *ref)
 {
-    assert(ref->refcount > 0);
     if (ref->ext_unref)
         ref->ext_unref(ref->arg);
+
+    bool dead;
+    refcount_lock();
+    assert(ref->refcount > 0);
     ref->refcount--;
-    if (ref->refcount == 0) {
+    dead = ref->refcount == 0;
+    refcount_unlock();
+
+    if (dead) {
         if (ref->free)
             ref->free(ref->arg);
         talloc_free(ref);
@@ -90,7 +109,12 @@ static void m_refcount_unref(struct m_refcount *ref)
 
 static bool m_refcount_is_unique(struct m_refcount *ref)
 {
-    if (ref->refcount > 1)
+    bool nonunique;
+    refcount_lock();
+    nonunique = ref->refcount > 1;
+    refcount_unlock();
+
+    if (nonunique)
         return false;
     if (ref->ext_is_unique)
         return ref->ext_is_unique(ref->arg); // referenced only by us
@@ -521,6 +545,9 @@ void mp_image_copy_fields_from_av_frame(struct mp_image *dst,
 #endif
 }
 
+// Not strictly related, but was added in a similar timeframe.
+#define HAVE_AVFRAME_COLORSPACE HAVE_AVCODEC_CHROMA_POS_API
+
 // Copy properties and data of the mp_image into the AVFrame, without taking
 // care of memory management issues.
 void mp_image_copy_fields_to_av_frame(struct AVFrame *dst,
@@ -543,6 +570,11 @@ void mp_image_copy_fields_to_av_frame(struct AVFrame *dst,
         dst->top_field_first = 1;
     if (src->fields & MP_IMGFIELD_REPEAT_FIRST)
         dst->repeat_pict = 1;
+
+#if HAVE_AVFRAME_COLORSPACE
+    dst->colorspace = mp_csp_to_avcol_spc(src->colorspace);
+    dst->color_range = mp_csp_levels_to_avcol_range(src->levels);
+#endif
 }
 
 #if HAVE_AVUTIL_REFCOUNTING

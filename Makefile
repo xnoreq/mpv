@@ -76,7 +76,7 @@ SOURCES-$(SDL2)                 += video/out/vo_sdl.c
 SOURCES-$(COREAUDIO)            += audio/out/ao_coreaudio.c \
                                    audio/out/ao_coreaudio_utils.c \
                                    audio/out/ao_coreaudio_properties.c
-SOURCES-$(COREVIDEO)            += video/out/vo_corevideo.m
+SOURCES-$(COREVIDEO)            += video/out/vo_corevideo.c
 SOURCES-$(DIRECT3D)             += video/out/vo_direct3d.c \
                                    video/out/w32_common.c
 SOURCES-$(DSOUND)               += audio/out/ao_dsound.c
@@ -106,7 +106,9 @@ SOURCES-$(OSS)                  += audio/out/ao_oss.c
 SOURCES-$(PULSE)                += audio/out/ao_pulse.c
 SOURCES-$(PORTAUDIO)            += audio/out/ao_portaudio.c
 SOURCES-$(RSOUND)               += audio/out/ao_rsound.c
-SOURCES-$(VDPAU)                += video/out/vo_vdpau.c
+SOURCES-$(VDPAU)                += video/vdpau.c video/out/vo_vdpau.c
+SOURCES-$(VDPAU_DEC)            += video/decode/vdpau.c
+SOURCES-$(VDPAU_DEC_OLD)        += video/decode/vdpau_old.c
 
 SOURCES-$(X11)                  += video/out/vo_x11.c video/out/x11_common.c
 SOURCES-$(XV)                   += video/out/vo_xv.c
@@ -349,10 +351,6 @@ core/input/input.c: core/input/input_conf.h
 core/input/input_conf.h: TOOLS/file2string.pl etc/input.conf
 	./$^ >$@
 
-video/out/vo_vdpau.c: video/out/vdpau_template.c
-video/out/vdpau_template.c: TOOLS/vdpau_functions.pl
-	./$< > $@
-
 MKVLIB_DEPS = TOOLS/lib/Parse/Matroska.pm \
               TOOLS/lib/Parse/Matroska/Definitions.pm \
               TOOLS/lib/Parse/Matroska/Element.pm \
@@ -399,7 +397,7 @@ version.h .version: version.sh
 
 core/version.c osdep/mpv-rc.o: version.h
 
-osdep/mpv-rc.o: osdep/mpv.exe.manifest
+osdep/mpv-rc.o: osdep/mpv.exe.manifest etc/mpv-icon.ico
 
 DOCS/man/en/mpv.1: DOCS/man/en/af.rst \
                    DOCS/man/en/ao.rst \

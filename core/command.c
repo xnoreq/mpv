@@ -124,7 +124,7 @@ static int mp_property_generic_option(struct m_option *prop, int action,
 static int mp_property_playback_speed(m_option_t *prop, int action,
                                       void *arg, MPContext *mpctx)
 {
-    struct MPOpts *opts = &mpctx->opts;
+    struct MPOpts *opts = mpctx->opts;
     double orig_speed = opts->playback_speed;
     switch (action) {
     case M_PROPERTY_SET: {
@@ -439,7 +439,7 @@ static int mp_property_list_chapters(m_option_t *prop, int action, void *arg,
 static int mp_property_edition(m_option_t *prop, int action, void *arg,
                                MPContext *mpctx)
 {
-    struct MPOpts *opts = &mpctx->opts;
+    struct MPOpts *opts = mpctx->opts;
     struct demuxer *demuxer = mpctx->master_demuxer;
     if (!demuxer)
         return M_PROPERTY_UNAVAILABLE;
@@ -754,13 +754,13 @@ static int mp_property_audio_delay(m_option_t *prop, int action,
 {
     if (!(mpctx->sh_audio && mpctx->sh_video))
         return M_PROPERTY_UNAVAILABLE;
-    float delay = mpctx->opts.audio_delay;
+    float delay = mpctx->opts->audio_delay;
     switch (action) {
     case M_PROPERTY_PRINT:
         *(char **)arg = format_delay(delay);
         return M_PROPERTY_OK;
     case M_PROPERTY_SET:
-        mpctx->audio_delay = mpctx->opts.audio_delay = *(float *)arg;
+        mpctx->audio_delay = mpctx->opts->audio_delay = *(float *)arg;
         mpctx->delay -= mpctx->audio_delay - delay;
         return M_PROPERTY_OK;
     }
@@ -1141,7 +1141,7 @@ static int mp_property_colormatrix(m_option_t *prop, int action, void *arg,
     if (action != M_PROPERTY_PRINT)
         return video_refresh_property_helper(prop, action, arg, mpctx);
 
-    struct MPOpts *opts = &mpctx->opts;
+    struct MPOpts *opts = mpctx->opts;
 
     struct mp_csp_details vo_csp = {0};
     if (mpctx->sh_video && mpctx->sh_video->vfilter)
@@ -1175,7 +1175,7 @@ static int mp_property_colormatrix_input_range(m_option_t *prop, int action,
     if (action != M_PROPERTY_PRINT)
         return video_refresh_property_helper(prop, action, arg, mpctx);
 
-    struct MPOpts *opts = &mpctx->opts;
+    struct MPOpts *opts = mpctx->opts;
 
     struct mp_csp_details vo_csp = {0};
     if (mpctx->sh_video && mpctx->sh_video->vfilter)
@@ -1215,7 +1215,7 @@ static int mp_property_colormatrix_output_range(m_option_t *prop, int action,
         return r;
     }
 
-    struct MPOpts *opts = &mpctx->opts;
+    struct MPOpts *opts = mpctx->opts;
 
     int req = opts->requested_output_range;
     struct mp_csp_details actual = {0};
@@ -1273,7 +1273,7 @@ static int mp_property_ontop(m_option_t *prop, int action, void *arg,
                              MPContext *mpctx)
 {
     return mp_property_vo_flag(prop, action, arg, VOCTRL_ONTOP,
-                               &mpctx->opts.vo.ontop, mpctx);
+                               &mpctx->opts->vo.ontop, mpctx);
 }
 
 /// Show window borders (RW)
@@ -1281,7 +1281,7 @@ static int mp_property_border(m_option_t *prop, int action, void *arg,
                               MPContext *mpctx)
 {
     return mp_property_vo_flag(prop, action, arg, VOCTRL_BORDER,
-                               &mpctx->opts.vo.border, mpctx);
+                               &mpctx->opts->vo.border, mpctx);
 }
 
 static int mp_property_framedrop(m_option_t *prop, int action,
@@ -1297,7 +1297,7 @@ static int mp_property_framedrop(m_option_t *prop, int action,
 static int mp_property_gamma(m_option_t *prop, int action, void *arg,
                              MPContext *mpctx)
 {
-    int *gamma = (int *)((char *)&mpctx->opts + prop->offset);
+    int *gamma = (int *)((char *)mpctx->opts + prop->offset);
     int r, val;
 
     if (!mpctx->sh_video)
@@ -1427,7 +1427,7 @@ static int mp_property_aspect(m_option_t *prop, int action, void *arg,
         float f = *(float *)arg;
         if (f < 0.1)
             f = (float)mpctx->sh_video->disp_w / mpctx->sh_video->disp_h;
-        mpctx->opts.movie_aspect = f;
+        mpctx->opts->movie_aspect = f;
         video_reinit_vo(mpctx->sh_video);
         return M_PROPERTY_OK;
     }
@@ -1462,7 +1462,7 @@ static int mp_property_sub(m_option_t *prop, int action, void *arg,
 static int mp_property_sub_delay(m_option_t *prop, int action, void *arg,
                                  MPContext *mpctx)
 {
-    struct MPOpts *opts = &mpctx->opts;
+    struct MPOpts *opts = mpctx->opts;
     if (!mpctx->sh_video)
         return M_PROPERTY_UNAVAILABLE;
     switch (action) {
@@ -1476,7 +1476,7 @@ static int mp_property_sub_delay(m_option_t *prop, int action, void *arg,
 static int mp_property_sub_pos(m_option_t *prop, int action, void *arg,
                                MPContext *mpctx)
 {
-    struct MPOpts *opts = &mpctx->opts;
+    struct MPOpts *opts = mpctx->opts;
     if (!mpctx->sh_video)
         return M_PROPERTY_UNAVAILABLE;
     if (action == M_PROPERTY_PRINT) {
@@ -1607,6 +1607,8 @@ static int mp_property_options(m_option_t *prop, int action, void *arg,
                                                   bstr0(ka->key));
     if (!opt)
         return M_PROPERTY_UNKNOWN;
+    if (!opt->data)
+        return M_PROPERTY_UNAVAILABLE;
 
     switch (ka->action) {
     case M_PROPERTY_GET:
@@ -1894,7 +1896,7 @@ static struct property_osd_display {
 static void show_property_osd(MPContext *mpctx, const char *pname,
                               enum mp_on_osd osd_mode)
 {
-    struct MPOpts *opts = &mpctx->opts;
+    struct MPOpts *opts = mpctx->opts;
     struct m_option prop = {0};
     struct property_osd_display *p;
 
@@ -1995,7 +1997,7 @@ static bool reinit_filters(MPContext *mpctx, enum stream_type mediatype)
 static void change_filters(MPContext *mpctx, enum stream_type mediatype,
                            const char *cmd, const char *arg)
 {
-    struct MPOpts *opts = &mpctx->opts;
+    struct MPOpts *opts = mpctx->opts;
     struct m_config *conf = mpctx->mconfig;
     struct m_obj_settings *old_settings = NULL;
     bool success = false;
@@ -2012,6 +2014,8 @@ static void change_filters(MPContext *mpctx, enum stream_type mediatype,
         option = "af";
         list = &opts->af_settings;
         break;
+    default:
+        abort();
     }
 
     // The option parser is used to modify the filter list itself.
@@ -2046,7 +2050,7 @@ static void change_video_filters(MPContext *mpctx, const char *cmd,
 
 void run_command(MPContext *mpctx, mp_cmd_t *cmd)
 {
-    struct MPOpts *opts = &mpctx->opts;
+    struct MPOpts *opts = mpctx->opts;
     sh_video_t *const sh_video = mpctx->sh_video;
     int osd_duration = opts->osd_duration;
     bool auto_osd = cmd->on_osd == MP_ON_OSD_AUTO;
@@ -2148,7 +2152,7 @@ void run_command(MPContext *mpctx, mp_cmd_t *cmd)
 
     case MP_CMD_SPEED_MULT: {
         float v = cmd->args[0].v.f;
-        v *= mpctx->opts.playback_speed;
+        v *= mpctx->opts->playback_speed;
         mp_property_do("speed", M_PROPERTY_SET, &v, mpctx);
         show_property_osd(mpctx, "speed", cmd->on_osd);
         break;
@@ -2164,7 +2168,8 @@ void run_command(MPContext *mpctx, mp_cmd_t *cmd)
 
     case MP_CMD_QUIT:
         mpctx->stop_play = PT_QUIT;
-        mpctx->quit_player_rc = cmd->args[0].v.i;
+        mpctx->quit_custom_rc = cmd->args[0].v.i;
+        mpctx->has_quit_custom_rc = true;
         break;
 
     case MP_CMD_QUIT_WATCH_LATER:

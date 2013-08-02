@@ -501,6 +501,9 @@ struct cmd_queue {
 };
 
 struct input_ctx {
+    bool using_ar;
+    bool using_cocoa_media_keys;
+
     // Autorepeat stuff
     short ar_state;
     int64_t last_ar;
@@ -577,7 +580,7 @@ static const m_option_t input_config[] = {
     { NULL, NULL, 0, 0, 0, 0, NULL}
 };
 
-static const m_option_t mp_input_opts[] = {
+const m_option_t mp_input_opts[] = {
     { "input", (void *)&input_config, CONF_TYPE_SUBCONFIG, 0, 0, 0, NULL},
     OPT_INTRANGE("doubleclick-time", input.doubleclick_time, 0, 0, 1000),
     OPT_FLAG("joystick", input.use_joystick, CONF_GLOBAL),
@@ -2076,9 +2079,10 @@ void mp_input_define_section(struct input_ctx *ictx, char *name, char *location,
     }
 }
 
-struct input_ctx *mp_input_init(struct input_conf *input_conf,
-                                bool load_default_conf)
+struct input_ctx *mp_input_init(struct MPOpts *opts)
 {
+    struct input_conf *input_conf = &opts->input;
+
     struct input_ctx *ictx = talloc_ptrtype(NULL, ictx);
     *ictx = (struct input_ctx){
         .key_fifo_size = input_conf->key_fifo_size,
@@ -2113,7 +2117,7 @@ struct input_ctx *mp_input_init(struct input_conf *input_conf,
     bool config_ok = false;
     if (input_conf->config_file)
         config_ok = parse_config_file(ictx, input_conf->config_file, true);
-    if (!config_ok && load_default_conf) {
+    if (!config_ok && opts->load_config) {
         // Try global conf dir
         char *file = mp_find_config_file("input.conf");
         config_ok = file && parse_config_file(ictx, file, false);
@@ -2155,10 +2159,12 @@ struct input_ctx *mp_input_init(struct input_conf *input_conf,
 #ifdef CONFIG_COCOA
     if (input_conf->use_ar) {
         cocoa_init_apple_remote();
+        ictx->using_ar = true;
     }
 
     if (input_conf->use_media_keys) {
         cocoa_init_media_keys();
+        ictx->using_cocoa_media_keys = true;
     }
 #endif
 
@@ -2193,17 +2199,17 @@ static void clear_queue(struct cmd_queue *queue)
     }
 }
 
-void mp_input_uninit(struct input_ctx *ictx, struct input_conf *input_conf)
+void mp_input_uninit(struct input_ctx *ictx)
 {
     if (!ictx)
         return;
 
 #ifdef CONFIG_COCOA
-    if (input_conf->use_ar) {
+    if (ictx->using_ar) {
         cocoa_uninit_apple_remote();
     }
 
-    if (input_conf->use_media_keys) {
+    if (ictx->using_cocoa_media_keys) {
         cocoa_uninit_media_keys();
     }
 #endif
@@ -2220,11 +2226,6 @@ void mp_input_uninit(struct input_ctx *ictx, struct input_conf *input_conf)
     clear_queue(&ictx->control_cmd_queue);
     talloc_free(ictx->current_down_cmd);
     talloc_free(ictx);
-}
-
-void mp_input_register_options(m_config_t *cfg)
-{
-    m_config_register_options(cfg, mp_input_opts);
 }
 
 static int print_key_list(m_option_t *cfg, char *optname, char *optparam)

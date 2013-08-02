@@ -51,8 +51,7 @@ enum mp_voctrl {
     VOCTRL_GET_EQUALIZER,               // struct voctrl_get_equalizer_args*
 
     /* for vdpau hardware decoding */
-    VOCTRL_HWDEC_DECODER_RENDER,        // pointer to hw state
-    VOCTRL_HWDEC_ALLOC_SURFACE,         // struct mp_image**
+    VOCTRL_GET_HWDEC_INFO,              // struct mp_hwdec_info*
 
     VOCTRL_NEWFRAME,
     VOCTRL_SKIPFRAME,
@@ -233,8 +232,12 @@ struct vo_driver {
 };
 
 struct vo {
-    int config_ok;  // Last config call was successful?
-    int config_count;  // Total number of successful config calls
+    struct {
+        struct mp_log *log; // Using "[vo]" as prefix
+    } vo_log;
+    struct mp_log *log; // Using e.g. "[vo/vdpau]" as prefix
+    int config_ok;      // Last config call was successful?
+    int config_count;   // Total number of successful config calls
 
     bool untimed;       // non-interactive, don't do sleep calls in playloop
 
@@ -282,7 +285,8 @@ struct vo {
     char *window_title;
 };
 
-struct vo *init_best_video_out(struct mp_vo_opts *opts,
+struct mpv_global;
+struct vo *init_best_video_out(struct mpv_global *global,
                                struct input_ctx *input_ctx,
                                struct encode_lavc_context *encode_lavc_ctx);
 int vo_reconfig(struct vo *vo, struct mp_image_params *p, int flags);

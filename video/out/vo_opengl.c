@@ -75,7 +75,7 @@ static void resize(struct gl_priv *p)
 {
     struct vo *vo = p->vo;
 
-    mp_msg(MSGT_VO, MSGL_V, "[gl] Resize: %dx%d\n", vo->dwidth, vo->dheight);
+    MP_VERBOSE(vo, "Resize: %dx%d\n", vo->dwidth, vo->dheight);
 
     struct mp_rect wnd = {0, 0, vo->dwidth, vo->dheight};
     struct mp_rect src, dst;
@@ -192,24 +192,22 @@ static int reconfig(struct vo *vo, struct mp_image_params *params, int flags)
 static bool reparse_cmdline(struct gl_priv *p, char *args)
 {
     struct m_config *cfg = NULL;
-    struct gl_video_opts opts;
+    struct gl_video_opts *opts = NULL;
     int r = 0;
 
     if (strcmp(args, "-") == 0) {
-        opts = *p->renderer_opts;
+        opts = p->renderer_opts;
     } else {
-        memcpy(&opts, gl_video_conf.defaults, sizeof(opts));
-        cfg = m_config_simple(&opts);
-        m_config_register_options(cfg, gl_video_conf.opts);
-        const char *init = p->vo->driver->init_option_string;
-        if (init)
-            m_config_parse_suboptions(cfg, "opengl", (char *)init);
+        cfg = m_config_new(NULL, sizeof(*opts), gl_video_conf.defaults,
+                           gl_video_conf.opts,
+                           p->vo->driver->init_option_string);
+        opts = cfg->optstruct;
         r = m_config_parse_suboptions(cfg, "opengl", args);
     }
 
     if (r >= 0) {
         mpgl_lock(p->glctx);
-        gl_video_set_options(p->renderer, &opts);
+        gl_video_set_options(p->renderer, opts);
         resize(p);
         mpgl_unlock(p->glctx);
     }
@@ -321,7 +319,7 @@ static int preinit(struct vo *vo)
     if (p->gl->SwapInterval)
         p->gl->SwapInterval(p->swap_interval);
 
-    p->renderer = gl_video_init(p->gl);
+    p->renderer = gl_video_init(p->gl, vo->log);
     gl_video_set_output_depth(p->renderer, p->glctx->depth_r, p->glctx->depth_g,
                               p->glctx->depth_b);
     gl_video_set_options(p->renderer, p->renderer_opts);

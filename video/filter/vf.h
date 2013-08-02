@@ -99,8 +99,6 @@ typedef struct vf_seteq {
 #define VFCTRL_SET_PP_LEVEL 5       // set postprocessing level
 #define VFCTRL_SET_EQUALIZER 6 // set color options (brightness,contrast etc)
 #define VFCTRL_GET_EQUALIZER 8 // get color options (brightness,contrast etc)
-#define VFCTRL_HWDEC_DECODER_RENDER 9 // vdpau hw decoding
-#define VFCTRL_HWDEC_ALLOC_SURFACE 10 // vdpau hw decoding
 #define VFCTRL_SCREENSHOT      14  // Take screenshot, arg is voctrl_screenshot_args
 #define VFCTRL_INIT_OSD        15  // Filter OSD renderer present?
 #define VFCTRL_SET_DEINTERLACE 18  // Set deinterlacing status
@@ -147,8 +145,8 @@ vf_instance_t *vf_find_by_label(vf_instance_t *chain, const char *label);
 void vf_uninit_filter(vf_instance_t *vf);
 void vf_uninit_filter_chain(vf_instance_t *vf);
 
-int vf_reconfig_wrapper(struct vf_instance *vf, struct mp_image_params *params,
-                        int flags);
+int vf_reconfig_wrapper(struct vf_instance *vf,
+                        const struct mp_image_params *params, int flags);
 void vf_print_filter_chain(int msglevel, struct vf_instance *vf);
 
 void vf_rescale_dsize(int *d_width, int *d_height, int old_w, int old_h,
