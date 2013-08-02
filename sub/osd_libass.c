@@ -359,10 +359,15 @@ static void update_external(struct osd_state *osd, struct osd_object *obj)
 
     ASS_Track *track = obj->osd_track;
 
-    // Note: maybe we should detect resize explicitly, and make libass clear
-    // its cache.
-    track->PlayResX = osd->external_res_x;
-    track->PlayResY = osd->external_res_y;
+    if (track->PlayResX != osd->external_res_x ||
+        track->PlayResY != osd->external_res_y)
+    {
+        track->PlayResX = osd->external_res_x;
+        track->PlayResY = osd->external_res_y;
+        // Force libass to clear its internal cache - it doesn't check for
+        // PlayRes changes itself.
+        ass_set_frame_size(osd->osd_render, 1, 1);
+    }
 
     bstr t = bstr0(osd->external);
     while (t.len) {
