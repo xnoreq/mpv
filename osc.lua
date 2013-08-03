@@ -9,8 +9,8 @@ local assdraw = require 'assdraw'
 local osc_param = {
     -- user-safe
     scaleWindow = 1,                        -- scaling of the controller when windowed
-    scaleFS = 1,                            -- scaling of the controller when fullscreen, differnet values = glitches
-    vidscale = true,                        -- scale the controller with the video? don't use false, currently causes glitches
+    scaleFS = 1,                            -- scaling of the controller when fullscreen
+    vidscale = true,                        -- scale the controller with the video?
     valign = 0.8,                           -- vertical alignment, -1 (top) to 1 (bottom)
     halign = 0,                             -- horizontal alignment, -1 (left) to 1 (right)
     deadzonedist = 0.15,                    -- distance between OSC and deadzone
@@ -909,21 +909,10 @@ function render()
         state.initREQ = false
     end
 
-    -- set mouse area
-    local area_y0, area_y1
-    if osc_param.valign > 0 then
-        -- deadzone above OSC
-        area_y0 = get_align(1 - osc_param.deadzonedist, osc_param.posY - (osc_param.osc_h / 2), 0, 0)
-        area_y1 = osc_param.playresy
-    else
-        -- deadzone below OSC
-        area_y0 = 0
-        area_y1 = (osc_param.posY + (osc_param.osc_h / 2))
-         + get_align(-1 + osc_param.deadzonedist, osc_param.playresy - (osc_param.posY + (osc_param.osc_h / 2)), 0, 0)
-    end
-    set_mouse_area(0, area_y0, osc_param.playresx, area_y1)
-
     local ass = assdraw.ass_new()
+
+    --ass:new_event()
+    --ass:append(0 .." ".. area_y0 .." ".. osc_param.playresx .." ".. area_y1)
 
     --local x, y = mp.get_mouse_pos()
 
@@ -953,10 +942,10 @@ function render()
     end
     --]]
 
-    ass:new_event()
+    --ass:new_event()
 
-    local playresx, playresy = mp.get_osd_resolution()
-    ass:append("{get_osd_resolution: X:" .. playresx .. " Y:" .. playresy .. "}")
+    --local playresx, playresy = mp.get_osd_resolution()
+    --ass:append("{get_osd_resolution: X:" .. playresx .. " Y:" .. playresy .. "}")
     --ass:append(now)
     --local playresx, playresy = mp.get_osd_resolution()
     --ass:append("get_mouse_pos: X:" .. x .. " Y:" .. y .. "")
@@ -988,6 +977,21 @@ function render()
 
     local w, h, aspect = mp.get_screen_size()
     mp.set_osd_ass(osc_param.playresy * aspect, osc_param.playresy, ass.text)
+
+    -- set mouse area
+    local area_y0, area_y1
+    if osc_param.valign > 0 then
+        -- deadzone above OSC
+        area_y0 = get_align(1 - osc_param.deadzonedist, osc_param.posY - (osc_param.osc_h / 2), 0, 0)
+        area_y1 = osc_param.playresy
+    else
+        -- deadzone below OSC
+        area_y0 = 0
+        area_y1 = (osc_param.posY + (osc_param.osc_h / 2))
+         + get_align(-1 + osc_param.deadzonedist, osc_param.playresy - (osc_param.posY + (osc_param.osc_h / 2)), 0, 0)
+    end
+    
+    set_mouse_area(0, area_y0, osc_param.playresx, area_y1)
 
 end
 
