@@ -413,30 +413,33 @@ function render_elements(master_ass)
 
             local pos = element.metainfo.slider.posF()
 
-            if pos > element.metainfo.slider.max then
-                pos = element.metainfo.slider.max
-            elseif pos < element.metainfo.slider.min then
-                 pos = element.metainfo.slider.min
-            end
+            if not (pos == nil) then
 
-            local fill_offsetV = element.metainfo.slider.border + element.metainfo.slider.gap
-            local fill_offsetH = element.h/2
+                if pos > element.metainfo.slider.max then
+                    pos = element.metainfo.slider.max
+                elseif pos < element.metainfo.slider.min then
+                     pos = element.metainfo.slider.min
+                end
 
-            local coordL, coordR = fill_offsetH, (element.w - fill_offsetH)
+                local fill_offsetV = element.metainfo.slider.border + element.metainfo.slider.gap
+                local fill_offsetH = element.h/2
 
-            local xp = scale_value(element.metainfo.slider.min, element.metainfo.slider.max, coordL, coordR, pos)
+                local coordL, coordR = fill_offsetH, (element.w - fill_offsetH)
 
-            -- the filling, draw it only if positive
-            local innerH = element.h - (2*fill_offsetV)
+                local xp = scale_value(element.metainfo.slider.min, element.metainfo.slider.max, coordL, coordR, pos)
 
-            if element.metainfo.slider.type == "bar" then
-                elem_ass:rect_cw(fill_offsetV, fill_offsetV, xp, element.h - fill_offsetV)
-                --elem_ass:round_rect_cw(xp-(innerH/2), fill_offsetV, xp+(innerH/2), element.h - fill_offsetV, innerH*1.25)
-            else
-                elem_ass:move_to(xp, fill_offsetV)
-                elem_ass:line_to(xp+(innerH/2), (innerH/2)+fill_offsetV)
-                elem_ass:line_to(xp, (innerH)+fill_offsetV)
-                elem_ass:line_to(xp-(innerH/2), (innerH/2)+fill_offsetV)
+                -- the filling, draw it only if positive
+                local innerH = element.h - (2*fill_offsetV)
+
+                if element.metainfo.slider.type == "bar" then
+                    elem_ass:rect_cw(fill_offsetV, fill_offsetV, xp, element.h - fill_offsetV)
+                    --elem_ass:round_rect_cw(xp-(innerH/2), fill_offsetV, xp+(innerH/2), element.h - fill_offsetV, innerH*1.25)
+                else
+                    elem_ass:move_to(xp, fill_offsetV)
+                    elem_ass:line_to(xp+(innerH/2), (innerH/2)+fill_offsetV)
+                    elem_ass:line_to(xp, (innerH)+fill_offsetV)
+                    elem_ass:line_to(xp-(innerH/2), (innerH/2)+fill_offsetV)
+                end
             end
 
             elem_ass:draw_stop()
@@ -775,7 +778,13 @@ function osc_init()
         return markers
     end
 
-    local posF = function () return tonumber(mp.property_get("percent-pos")) end
+    local posF = function () 
+        if mp.property_get("length") == nil then
+            return nil
+        else 
+            return tonumber(mp.property_get("percent-pos"))
+        end
+    end
 
     local metainfo = {}
     metainfo.enabled = (not (mp.property_get("length") == nil)) and (tonumber(mp.property_get("length")) > 0)
