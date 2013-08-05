@@ -72,6 +72,8 @@
 
 static void change_video_filters(MPContext *mpctx, const char *cmd,
                                  const char *arg);
+static int set_filters(struct MPContext *mpctx, enum stream_type mediatype,
+                       struct m_obj_settings *new_chain);
 
 static char *format_bitrate(int rate)
 {
@@ -127,7 +129,7 @@ static int mp_property_playback_speed(m_option_t *prop, int action,
     double orig_speed = opts->playback_speed;
     switch (action) {
     case M_PROPERTY_SET: {
-        opts->playback_speed = *(float *) arg;
+        opts->playback_speed = *(double *) arg;
         // Adjust time until next frame flip for nosound mode
         mpctx->time_frame *= orig_speed / opts->playback_speed;
         if (mpctx->sh_audio)
@@ -1581,6 +1583,52 @@ static int mp_property_playlist(m_option_t *prop, int action, void *arg,
     return M_PROPERTY_NOT_IMPLEMENTED;
 }
 
+static char *print_obj_osd_list(struct m_obj_settings *list)
+{
+    char *res = NULL;
+    for (int n = 0; list && list[n].name; n++) {
+        res = talloc_asprintf_append(res, "%s [", list[n].name);
+        for (int i = 0; list[n].attribs && list[n].attribs[i]; i += 2) {
+            res = talloc_asprintf_append(res, "%s%s=%s", i > 0 ? " " : "",
+                                         list[n].attribs[i],
+                                         list[n].attribs[i + 1]);
+        }
+        res = talloc_asprintf_append(res, "]\n");
+    }
+    if (!res)
+        res = talloc_strdup(NULL, "(empty)");
+    return res;
+}
+
+static int property_filter(m_option_t *prop, int action, void *arg,
+                           MPContext *mpctx, enum stream_type mt)
+{
+    switch (action) {
+    case M_PROPERTY_PRINT: {
+        struct m_config_option *opt = m_config_get_co(mpctx->mconfig,
+                                                      bstr0(prop->name));
+        *(char **)arg = print_obj_osd_list(*(struct m_obj_settings **)opt->data);
+        return M_PROPERTY_OK;
+    }
+    case M_PROPERTY_SET:
+        return set_filters(mpctx, mt, *(struct m_obj_settings **)arg) >= 0
+            ? M_PROPERTY_OK : M_PROPERTY_ERROR;
+    }
+    return mp_property_generic_option(prop, action, arg, mpctx);
+}
+
+static int mp_property_vf(m_option_t *prop, int action, void *arg,
+                          MPContext *mpctx)
+{
+    return property_filter(prop, action, arg, mpctx, STREAM_VIDEO);
+}
+
+static int mp_property_af(m_option_t *prop, int action, void *arg,
+                          MPContext *mpctx)
+{
+    return property_filter(prop, action, arg, mpctx, STREAM_AUDIO);
+}
+
 static int mp_property_alias(m_option_t *prop, int action, void *arg,
                              MPContext *mpctx)
 {
@@ -1776,6 +1824,9 @@ static const m_option_t mp_properties[] = {
     M_OPTION_PROPERTY_CUSTOM("ass-style-override", property_osd_helper),
 #endif
 
+    M_OPTION_PROPERTY_CUSTOM("vf*", mp_property_vf),
+    M_OPTION_PROPERTY_CUSTOM("af*", mp_property_af),
+
 #ifdef CONFIG_TV
     { "tv-brightness", mp_property_tv_color, CONF_TYPE_INT,
       M_OPT_RANGE, -100, 100, .offset = TV_COLOR_BRIGHTNESS },
@@ -1836,6 +1887,8 @@ static struct property_osd_display {
     int osd_id;
     // Needs special ways to display the new value (seeks are delayed)
     int seek_msg, seek_bar;
+    // Separator between option name and value (default: ": ")
+    const char *sep;
 } property_osd_display[] = {
     // general
     { "loop", _("Loop") },
@@ -1876,6 +1929,8 @@ static struct property_osd_display {
     { "sub-scale", _("Sub Scale")},
     { "ass-vsfilter-aspect-compat", _("Subtitle VSFilter aspect compat")},
     { "ass-style-override", _("ASS subtitle style override")},
+    { "vf*", _("Video filters"), .sep = ":\n"},
+    { "af*", _("Audio filters"), .sep = ":\n"},
 #ifdef CONFIG_TV
     { "tv-brightness", _("Brightness"), .osd_progbar = OSD_BRIGHTNESS },
     { "tv-hue", _("Hue"), .osd_progbar = OSD_HUE},
@@ -1949,12 +2004,16 @@ static void show_property_osd(MPContext *mpctx, const char *pname,
                          "%s: (unavailable)", osd_name);
         } else if (r >= 0 && val) {
             int osd_id = 0;
+            const char *sep = NULL;
             if (p) {
                 int index = p - property_osd_display;
                 osd_id = p->osd_id ? p->osd_id : OSD_MSG_PROPERTY + index;
+                sep = p->sep;
             }
+            if (!sep)
+                sep = ": ";
             set_osd_tmsg(mpctx, osd_id, 1, opts->osd_duration,
-                         "%s: %s", osd_name, val);
+                         "%s%s%s", osd_name, sep, val);
             talloc_free(val);
         }
     }
@@ -1986,58 +2045,84 @@ static bool reinit_filters(MPContext *mpctx, enum stream_type mediatype)
     return false;
 }
 
-static void change_filters(MPContext *mpctx, enum stream_type mediatype,
-                           const char *cmd, const char *arg)
-{
-    struct MPOpts *opts = mpctx->opts;
-    struct m_config *conf = mpctx->mconfig;
-    struct m_obj_settings *old_settings = NULL;
-    bool success = false;
-    bool need_refresh = false;
-    const char *option;
-    struct m_obj_settings **list;
+static const char *filter_opt[STREAM_TYPE_COUNT] = {
+    [STREAM_VIDEO] = "vf",
+    [STREAM_AUDIO] = "af",
+};
 
-    switch (mediatype) {
-    case STREAM_VIDEO:
-        option = "vf";
-        list = &opts->vf_settings;
-        break;
-    case STREAM_AUDIO:
-        option = "af";
-        list = &opts->af_settings;
-        break;
-    default:
-        abort();
+static int set_filters(struct MPContext *mpctx, enum stream_type mediatype,
+                       struct m_obj_settings *new_chain)
+{
+    bstr option = bstr0(filter_opt[mediatype]);
+    struct m_config_option *co = m_config_get_co(mpctx->mconfig, option);
+    if (!co)
+        return -1;
+
+    struct m_obj_settings **list = co->data;
+    struct m_obj_settings *old_settings = *list;
+    *list = NULL;
+    m_option_copy(co->opt, list, &new_chain);
+
+    bool success = reinit_filters(mpctx, mediatype);
+
+    if (success) {
+        m_option_free(co->opt, &old_settings);
+    } else {
+        m_option_free(co->opt, list);
+        *list = old_settings;
+        reinit_filters(mpctx, mediatype);
     }
+
+    if (mediatype == STREAM_VIDEO)
+        mp_force_video_refresh(mpctx);
+
+    return success ? 0 : -1;
+}
+
+static int edit_filters(struct MPContext *mpctx, enum stream_type mediatype,
+                        const char *cmd, const char *arg)
+{
+    bstr option = bstr0(filter_opt[mediatype]);
+    struct m_config_option *co = m_config_get_co(mpctx->mconfig, option);
+    if (!co)
+        return -1;
 
     // The option parser is used to modify the filter list itself.
     char optname[20];
-    snprintf(optname, sizeof(optname), "%s-%s", option, cmd);
-    const struct m_option *type = m_config_get_option(conf, bstr0(optname));
+    snprintf(optname, sizeof(optname), "%.*s-%s", BSTR_P(option), cmd);
 
-    // Backup old settings, in case it fails
-    m_option_copy(type, &old_settings, list);
+    struct m_obj_settings *new_chain = NULL;
+    m_option_copy(co->opt, &new_chain, co->data);
 
-    if (m_config_set_option0(conf, optname, arg) >= 0) {
-        need_refresh = true;
-        success = reinit_filters(mpctx, mediatype);
+    int r = m_option_parse(co->opt, bstr0(optname), bstr0(arg), &new_chain);
+    if (r >= 0)
+        r = set_filters(mpctx, mediatype, new_chain);
+
+    m_option_free(co->opt, &new_chain);
+
+    return r >= 0 ? 0 : -1;
+}
+
+static int edit_filters_osd(struct MPContext *mpctx, enum stream_type mediatype,
+                            const char *cmd, const char *arg, bool on_osd)
+{
+    int r = edit_filters(mpctx, mediatype, cmd, arg);
+    if (on_osd) {
+        if (r >= 0) {
+            const char *prop = filter_opt[mediatype];
+            show_property_osd(mpctx, prop, MP_ON_OSD_MSG);
+        } else {
+            set_osd_tmsg(mpctx, OSD_MSG_TEXT, 1, mpctx->opts->osd_duration,
+                         "Changing filters failed!");
+        }
     }
-
-    if (!success) {
-        m_option_copy(type, list, &old_settings);
-        if (need_refresh)
-            reinit_filters(mpctx, mediatype);
-    }
-    m_option_free(type, &old_settings);
-
-    if (need_refresh && mediatype == STREAM_VIDEO)
-        mp_force_video_refresh(mpctx);
+    return r;
 }
 
 static void change_video_filters(MPContext *mpctx, const char *cmd,
                                  const char *arg)
 {
-    change_filters(mpctx, STREAM_VIDEO, cmd, arg);
+    edit_filters(mpctx, STREAM_VIDEO, cmd, arg);
 }
 
 void run_command(MPContext *mpctx, mp_cmd_t *cmd)
@@ -2108,8 +2193,8 @@ void run_command(MPContext *mpctx, mp_cmd_t *cmd)
             .inc = 1,
             .wrap = cmd->id == MP_CMD_CYCLE,
         };
-        if (cmd->args[1].v.f)
-            s.inc = cmd->args[1].v.f;
+        if (cmd->args[1].v.d)
+            s.inc = cmd->args[1].v.d;
         int r = mp_property_do(cmd->args[0].v.s, M_PROPERTY_SWITCH, &s, mpctx);
         if (r == M_PROPERTY_OK || r == M_PROPERTY_UNAVAILABLE) {
             show_property_osd(mpctx, cmd->args[0].v.s, cmd->on_osd);
@@ -2143,7 +2228,7 @@ void run_command(MPContext *mpctx, mp_cmd_t *cmd)
     }
 
     case MP_CMD_SPEED_MULT: {
-        float v = cmd->args[0].v.f;
+        double v = cmd->args[0].v.d;
         v *= mpctx->opts->playback_speed;
         mp_property_do("speed", M_PROPERTY_SET, &v, mpctx);
         show_property_osd(mpctx, "speed", cmd->on_osd);
@@ -2561,11 +2646,13 @@ void run_command(MPContext *mpctx, mp_cmd_t *cmd)
         break;
 
     case MP_CMD_AF:
-        change_filters(mpctx, STREAM_AUDIO, cmd->args[0].v.s, cmd->args[1].v.s);
+        edit_filters_osd(mpctx, STREAM_AUDIO, cmd->args[0].v.s,
+                         cmd->args[1].v.s, msg_osd);
         break;
 
     case MP_CMD_VF:
-        change_video_filters(mpctx, cmd->args[0].v.s, cmd->args[1].v.s);
+        edit_filters_osd(mpctx, STREAM_VIDEO, cmd->args[0].v.s,
+                         cmd->args[1].v.s, msg_osd);
         break;
 
     case MP_CMD_LUA:

@@ -450,7 +450,7 @@ const m_option_t mp_opts[] = {
     OPT_INTRANGE("srate", force_srate, 0, 1000, 8*48000),
     OPT_CHMAP("channels", audio_output_channels, CONF_MIN, .min = 1),
     OPT_AUDIOFORMAT("format", audio_output_format, 0),
-    OPT_FLOATRANGE("speed", playback_speed, 0, 0.01, 100.0),
+    OPT_DOUBLE("speed", playback_speed, M_OPT_RANGE, .min = 0.01, .max = 100.0),
 
     // set a-v distance
     OPT_FLOATRANGE("audio-delay", audio_delay, 0, -100.0, 100.0),
@@ -606,7 +606,7 @@ const m_option_t mp_opts[] = {
 #endif
     OPT_STRING("heartbeat-cmd", heartbeat_cmd, 0),
     OPT_FLOAT("heartbeat-interval", heartbeat_interval, CONF_MIN, 0),
-    OPT_FLAG("mouseinput", vo.nomouse_input, 0),
+    OPT_FLAG_CONSTANTS("mouseinput", vo.nomouse_input, 0, 1, 0),
 
     OPT_CHOICE_OR_INT("screen", vo.screen_id, 0, 0, 32,
                       ({"default", -1})),

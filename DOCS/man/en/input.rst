@@ -289,6 +289,11 @@ Input Commands that are Possibly Subject to Change
     refer to filters by name in all of the filter chain modification commands.
     For ``add``, using an already used label will replace the existing filter.
 
+    The ``vf`` command shows the list of requested filters on the OSD after
+    changing the filter chain. This is roughly equivalent to
+    ``show_text ${vf}``. Note that auto-inserted filters for format conversion
+    are not shown on the list, only what was requested by the user.
+
     .. admonition:: Example for input.conf
 
         - ``a vf set flip`` turn video upside-down on the ``a`` key
@@ -469,6 +474,8 @@ Name                            W Comment
 ``track-list``                    list of audio/video/sub tracks, cur. entr. marked
 ``chapter-list``                  list of chapters, current entry marked
 ``quvi-format``                 x see ``--quvi-format``
+``af``                          x see ``--af``
+``vf``                          x see ``--vf``
 ``options/name``                  read-only access to value of option ``--name``
 =============================== = ==================================================
 
