@@ -2655,20 +2655,10 @@ void run_command(MPContext *mpctx, mp_cmd_t *cmd)
                          cmd->args[1].v.s, msg_osd);
         break;
 
-    case MP_CMD_LUA:
-        if (mpctx->lua_ctx) {
-#ifdef CONFIG_LUA
-            mp_lua_run(mpctx, cmd->args[0].v.s);
-#endif
-        } else {
-            mp_msg(MSGT_CPLAYER, MSGL_WARN, "[lua] Lua not available.\n");
-        }
-        break;
-
     case MP_CMD_SCRIPT_DISPATCH:
         if (mpctx->lua_ctx) {
 #ifdef CONFIG_LUA
-            mp_lua_script_dispatch(mpctx, cmd->args[0].v.i,
+            mp_lua_script_dispatch(mpctx, cmd->args[0].v.s, cmd->args[1].v.i,
                             cmd->key_up_follows ? "keyup_follows" : "press");
 #endif
         }

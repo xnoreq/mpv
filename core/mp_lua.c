@@ -17,24 +17,46 @@
 #include "input/input.h"
 #include "sub/sub.h"
 #include "osdep/timer.h"
+#include "path.h"
 
 static const char lua_defaults[] =
 // Generated from defaults.lua
 #include "lua_defaults.h"
 ;
 
-struct lua_ctx {
+// Represents a loaded script. Each has its own Lua state.
+struct script_ctx {
+    const char *name;
     lua_State *state;
-    double start_time;
+    struct MPContext *mpctx;
 };
 
-static struct MPContext *get_mpctx(lua_State *L)
+struct lua_ctx {
+    struct script_ctx **scripts;
+    int num_scripts;
+};
+
+static struct script_ctx *find_script(struct lua_ctx *lctx, const char *name)
 {
-    lua_getfield(L, LUA_REGISTRYINDEX, "mpctx");
-    struct MPContext *ctx = lua_touserdata(L, -1);
+    for (int n = 0; n < lctx->num_scripts; n++) {
+        if (strcmp(lctx->scripts[n]->name, name) == 0)
+            return lctx->scripts[n];
+    }
+    return NULL;
+}
+
+static struct script_ctx *get_ctx(lua_State *L)
+{
+    lua_getfield(L, LUA_REGISTRYINDEX, "ctx");
+    struct script_ctx *ctx = lua_touserdata(L, -1);
     lua_pop(L, 1);
     assert(ctx);
     return ctx;
+}
+
+static struct MPContext *get_mpctx(lua_State *L)
+{
+    return get_ctx(L)->mpctx;
 }
 
 static int wrap_cpcall(lua_State *L)
@@ -67,41 +89,58 @@ static void report_error(lua_State *L)
     lua_pop(L, 1);
 }
 
-static void add_functions(struct MPContext *mpctx);
+static void add_functions(struct script_ctx *ctx);
 
-void mp_lua_run(struct MPContext *mpctx, const char *source)
+static char *script_name_from_filename(void *talloc_ctx, struct lua_ctx *lctx,
+                                       const char *fname)
 {
-    if (!mpctx->lua_ctx)
-        return;
-    lua_State *L = mpctx->lua_ctx->state;
-    if (luaL_loadstring(L, source) || lua_pcall(L, 0, 0, 0))
-        report_error(L);
-    assert(lua_gettop(L) == 0);
+    char *name = talloc_strdup(talloc_ctx, mp_basename(fname));
+    // Drop .lua extension
+    char *dot = strrchr(name, '.');
+    if (dot)
+        *dot = '\0';
+    // Turn it into a safe identifier - this is used with e.g. dispatching
+    // input via: "send scriptname ..."
+    for (int n = 0; name[n]; n++) {
+        char c = name[n];
+        if (!(c >= 'A' && c <= 'Z') && !(c >= 'a' && c <= 'z') &&
+            !(c >= '0' && c <= '9'))
+            name[n] = '_';
+    }
+    // Make unique (stupid but simple)
+    while (find_script(lctx, name))
+        name = talloc_strdup_append(name, "_");
+    return name;
 }
 
-void mp_lua_load_file(struct MPContext *mpctx, const char *fname)
+static int load_file(struct script_ctx *ctx, const char *fname)
 {
-    if (!mpctx->lua_ctx)
-        return;
-    lua_State *L = mpctx->lua_ctx->state;
-    if (luaL_loadfile(L, fname) || lua_pcall(L, 0, 0, 0))
+    int r = 0;
+    lua_State *L = ctx->state;
+    if (luaL_loadfile(L, fname) || lua_pcall(L, 0, 0, 0)) {
         report_error(L);
+        r = -1;
+    }
     assert(lua_gettop(L) == 0);
+    return r;
 }
 
-void mp_lua_init(struct MPContext *mpctx)
+static void mp_lua_load_script(struct MPContext *mpctx, const char *fname)
 {
-    mpctx->lua_ctx = talloc(mpctx, struct lua_ctx);
-    lua_State *L = mpctx->lua_ctx->state = luaL_newstate();
+    struct lua_ctx *lctx = mpctx->lua_ctx;
+    struct script_ctx *ctx = talloc_ptrtype(NULL, ctx);
+    *ctx = (struct script_ctx) {
+        .mpctx = mpctx,
+        .name = script_name_from_filename(ctx, lctx, fname),
+    };
+
+    lua_State *L = ctx->state = luaL_newstate();
     if (!L)
         goto error_out;
 
-    // For avoiding wrap arounds and loss of precission
-    mpctx->lua_ctx->start_time = mp_time_sec();
-
-    // used by get_mpctx()
-    lua_pushlightuserdata(L, mpctx); // mpctx
-    lua_setfield(L, LUA_REGISTRYINDEX, "mpctx"); // -
+    // used by get_ctx()
+    lua_pushlightuserdata(L, ctx); // ctx
+    lua_setfield(L, LUA_REGISTRYINDEX, "ctx"); // -
 
     lua_pushcfunction(L, wrap_cpcall); // closure
     lua_setfield(L, LUA_REGISTRYINDEX, "wrap_cpcall"); // -
@@ -112,34 +151,45 @@ void mp_lua_init(struct MPContext *mpctx)
     lua_pushvalue(L, -1); // mp mp
     lua_setglobal(L, "mp"); // mp
 
-    add_functions(mpctx); // mp
+    add_functions(ctx); // mp
+
+    lua_pushstring(L, ctx->name);
+    lua_setfield(L, -2, "script_name");
 
     lua_pop(L, 1); // -
 
-    if (luaL_loadstring(L, lua_defaults) || lua_pcall(L, 0, 0, 0))
+    if (luaL_loadstring(L, lua_defaults) || lua_pcall(L, 0, 0, 0)) {
         report_error(L);
+        goto error_out;
+    }
 
     assert(lua_gettop(L) == 0);
 
-    if (mpctx->opts->lua_file)
-        mp_lua_load_file(mpctx, mpctx->opts->lua_file);
+    if (load_file(ctx, fname) < 0)
+        goto error_out;
 
+    MP_TARRAY_APPEND(lctx, lctx->scripts, lctx->num_scripts, ctx);
     return;
 
 error_out:
-    if (mpctx->lua_ctx->state)
-        lua_close(mpctx->lua_ctx->state);
-    talloc_free(mpctx->lua_ctx);
-    mpctx->lua_ctx = NULL;
+    if (ctx->state)
+        lua_close(ctx->state);
+    talloc_free(ctx);
 }
 
-void mp_lua_uninit(struct MPContext *mpctx)
+static void kill_script(struct script_ctx *ctx)
 {
-    if (!mpctx->lua_ctx)
+    if (!ctx)
         return;
-    lua_close(mpctx->lua_ctx->state);
-    talloc_free(mpctx->lua_ctx);
-    mpctx->lua_ctx = NULL;
+    struct lua_ctx *lctx = ctx->mpctx->lua_ctx;
+    lua_close(ctx->state);
+    for (int n = 0; n < lctx->num_scripts; n++) {
+        if (lctx->scripts[n] == ctx) {
+            MP_TARRAY_REMOVE_AT(lctx->scripts, lctx->num_scripts, n);
+            break;
+        }
+    }
+    talloc_free(ctx);
 }
 
 static int run_event(lua_State *L)
@@ -154,17 +204,20 @@ static int run_event(lua_State *L)
 
 void mp_lua_event(struct MPContext *mpctx, const char *name, const char *arg)
 {
-    if (!mpctx->lua_ctx)
-        return;
-    lua_State *L = mpctx->lua_ctx->state;
-    lua_pushstring(L, name);
-    if (arg) {
-        lua_pushstring(L, arg);
-    } else {
-        lua_pushnil(L);
+    // There is no proper subscription mechanism yet, so all scripts get it.
+    struct lua_ctx *lctx = mpctx->lua_ctx;
+    for (int n = 0; n < lctx->num_scripts; n++) {
+        struct script_ctx *ctx = lctx->scripts[n];
+        lua_State *L = ctx->state;
+        lua_pushstring(L, name);
+        if (arg) {
+            lua_pushstring(L, arg);
+        } else {
+            lua_pushnil(L);
+        }
+        if (mp_cpcall(L, run_event, 2) != 0)
+            report_error(L);
     }
-    if (mp_cpcall(L, run_event, 2) != 0)
-        report_error(L);
 }
 
 static int run_script_dispatch(lua_State *L)
@@ -180,11 +233,16 @@ static int run_script_dispatch(lua_State *L)
     return 0;
 }
 
-void mp_lua_script_dispatch(struct MPContext *mpctx, int id, char *event)
+void mp_lua_script_dispatch(struct MPContext *mpctx, char *script_name,
+                            int id, char *event)
 {
-    if (!mpctx->lua_ctx)
+    struct script_ctx *ctx = find_script(mpctx->lua_ctx, script_name);
+    if (!ctx) {
+        mp_msg(MSGT_CPLAYER, MSGL_V,
+               "Can't find script '%s' when handling input.\n", script_name);
         return;
-    lua_State *L = mpctx->lua_ctx->state;
+    }
+    lua_State *L = ctx->state;
     lua_pushinteger(L, id);
     lua_pushstring(L, event);
     if (mp_cpcall(L, run_script_dispatch, 2) != 0)
@@ -295,8 +353,7 @@ static int get_mouse_pos(lua_State *L)
 
 static int get_timer(lua_State *L)
 {
-    struct MPContext *mpctx = get_mpctx(L);
-    lua_pushnumber(L, mp_time_sec() - mpctx->lua_ctx->start_time);
+    lua_pushnumber(L, mp_time_sec());
     return 1;
 }
 
@@ -414,9 +471,9 @@ static int input_set_section_mouse_area(lua_State *L)
 }
 
 // On stack: mp table
-static void add_functions(struct MPContext *mpctx)
+static void add_functions(struct script_ctx *ctx)
 {
-    lua_State *L = mpctx->lua_ctx->state;
+    lua_State *L = ctx->state;
 
     lua_pushcfunction(L, send_command);
     lua_setfield(L, -2, "send_command");
@@ -464,4 +521,22 @@ static void add_functions(struct MPContext *mpctx)
 
     lua_pushcfunction(L, input_set_section_mouse_area);
     lua_setfield(L, -2, "input_set_section_mouse_area");
+}
+
+void mp_lua_init(struct MPContext *mpctx)
+{
+    mpctx->lua_ctx = talloc_zero(NULL, struct lua_ctx);
+    // Load scripts from options
+    if (mpctx->opts->lua_file && mpctx->opts->lua_file[0])
+        mp_lua_load_script(mpctx, mpctx->opts->lua_file);
+}
+
+void mp_lua_uninit(struct MPContext *mpctx)
+{
+    if (mpctx->lua_ctx) {
+        while (mpctx->lua_ctx->num_scripts)
+            kill_script(mpctx->lua_ctx->scripts[0]);
+        talloc_free(mpctx->lua_ctx);
+        mpctx->lua_ctx = NULL;
+    }
 }

@@ -90,8 +90,8 @@ function mp_update()
 end
 
 local callbacks = {}
--- ideally, each script would have its own section, so that they don't conflict
-local section = "script"
+-- each script has its own section, so that they don't conflict
+local section = "input_" .. mp.script_name
 
 -- Set the list of key bindings. These will override the user's bindings, so
 -- you should use this sparingly.
@@ -121,7 +121,8 @@ function set_key_bindings(list)
         local cb_down = entry[3]
         if type(cb) == "function" then
             callbacks[#callbacks + 1] = {press=cb, before_press=cb_down}
-            cfg = cfg .. key .. " script_dispatch " .. #callbacks .. "\n"
+            cfg = cfg .. key .. " script_dispatch " .. mp.script_name
+                  .. " " .. #callbacks .. "\n"
         else
             cfg = cfg .. key .. " " .. cb .. "\n"
         end
