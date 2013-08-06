@@ -172,7 +172,7 @@ function get_tracklist(type)
     if #tracks_osc[type] == 0 then
         msg = msg .. "none"
     else
-        for n = 1, #tracks_osc[type] do 
+        for n = 1, #tracks_osc[type] do
             local track = tracks_osc[type][n]
             local lang, title, selected = "unkown", "", "{\\fscx" .. select_scale .. "\\fscy" .. select_scale .. "}○{\\fscx100\\fscy100}"
             if not(track.language == nil) then lang = track.language end
@@ -250,10 +250,10 @@ function register_element(type, x, y, an, w, h, style, content, eventresponder, 
     if metainfo.visible then
         local ass = assdraw.ass_new()
 
-        ass:append("{}") -- shitty hack to troll the new_event function into inserting a \n 
+        ass:append("{}") -- shitty hack to troll the new_event function into inserting a \n
         ass:new_event()
         ass:pos(x, y) -- positioning
-        ass:an(an) 
+        ass:an(an)
         ass:append(style) -- styling
 
         -- if the element is supposed to be disabled, style it accordingly and kill the eventresponders
@@ -288,7 +288,7 @@ function register_element(type, x, y, an, w, h, style, content, eventresponder, 
     end
 end
 
-function register_button(x, y, an, w, h, style, content, eventresponder, metainfo) 
+function register_button(x, y, an, w, h, style, content, eventresponder, metainfo)
     register_element("button", x, y, an, w, h, style, content, eventresponder, metainfo)
 end
 
@@ -461,7 +461,7 @@ end
 --
 
 function show_message(text, duration)
-    
+
     if duration == nil then
         duration = tonumber(mp.property_get("options/osd-duration")) / 1000
     end
@@ -585,12 +585,12 @@ function osc_init()
     end
     eventresponder.mouse_btn2_up = function () show_message(mp.property_get("filename")) end
 
-    register_button(posX, titlerowY, 8, 496, 12, osc_styles.vidtitle, contentF, eventresponder, nil) 
+    register_button(posX, titlerowY, 8, 496, 12, osc_styles.vidtitle, contentF, eventresponder, nil)
 
     -- If we have more than one playlist entry, render playlist navigation buttons
     local metainfo = {}
     metainfo.visible = (tonumber(mp.property_get("playlist-count")) > 1)
-    
+
     -- playlist prev
     local eventresponder = {}
     eventresponder.mouse_btn0_up = function () mp.send_command("playlist_prev weak") end
@@ -602,7 +602,7 @@ function osc_init()
     eventresponder.mouse_btn0_up = function () mp.send_command("playlist_next weak") end
     eventresponder["shift+mouse_btn0_up"] = function () show_message(mp.property_get("playlist"), 3) end
     register_button(posX + pos_offsetX, titlerowY, 9, 12, 12, osc_styles.vidtitle, "▶", eventresponder, metainfo)
-    
+
     --
     -- Big buttons
     --
@@ -643,18 +643,18 @@ function osc_init()
     -- do we have any?
     local metainfo = {}
     metainfo.enabled = ((#mp.get_chapter_list()) > 0)
-    
+
     --prev
     local eventresponder = {}
     eventresponder.mouse_btn0_up = function ()
         local chaplist = mp.get_chapter_list()
         local chapter = tonumber(mp.property_get("chapter")) + 1
         if (tonumber(chaplist[chapter].time) + 3) < tonumber(mp.property_get("time-pos")) then
-            mp.send_command("osd-msg set chapter ${=chapter}") 
+            mp.send_command("osd-msg set chapter ${=chapter}")
         else
             mp.send_command("osd-msg add chapter -1")
         end
-        
+
     end
     eventresponder["shift+mouse_btn0_up"] = function () show_message(mp.property_get("chapter-list"), 3) end
     register_button(posX - (bigbuttondistance * 2), bigbuttonrowY, 5, 40, 40, osc_styles.bigButtons, "\238\132\132", eventresponder, metainfo)
@@ -700,7 +700,7 @@ function osc_init()
         metainfo.enabled = true
         contentF = function (ass)
             local aid = mp.property_get("audio")
-            
+
             ass:append("\238\132\134 " .. osc_styles.smallButtonsLlabel .. aid)
         end
 
@@ -709,14 +709,14 @@ function osc_init()
     end
 
     register_button(posX - pos_offsetX, bigbuttonrowY, 1, 70, 18, osc_styles.smallButtonsL, contentF, eventresponder, metainfo)
-    
+
 
     --cycle sub tracks
 
     local metainfo = {}
     local eventresponder = {}
     local contentF
-    
+
     if not (osc_param.iAmAProgrammer) then
         metainfo.enabled = (#tracks_osc.sub > 0)
 
@@ -727,7 +727,7 @@ function osc_init()
             end
             ass:append("\238\132\135 " .. osc_styles.smallButtonsLlabel .. sid .. "/" .. #tracks_osc.sub)
         end
-        
+
         eventresponder.mouse_btn0_up = function () set_track("sub", 1) end
         eventresponder.mouse_btn2_up = function () set_track("sub", -1) end
         eventresponder["shift+mouse_btn0_down"] = function ()
@@ -737,7 +737,7 @@ function osc_init()
         metainfo.enabled = true
         contentF = function (ass)
             local sid = mp.property_get("sub")
-            
+
             ass:append("\238\132\135 " .. osc_styles.smallButtonsLlabel .. sid)
         end
 
@@ -778,10 +778,10 @@ function osc_init()
         return markers
     end
 
-    local posF = function () 
+    local posF = function ()
         if mp.property_get("length") == nil then
             return nil
-        else 
+        else
             return tonumber(mp.property_get("percent-pos"))
         end
     end
@@ -815,8 +815,8 @@ function osc_init()
     -- left (current pos)
     local metainfo = {}
     local eventresponder = {}
-    
-    local contentF = function (ass) 
+
+    local contentF = function (ass)
         if state.tc_ms then
             ass:append(mp.property_get_string("time-pos/full"))
         else
@@ -855,7 +855,7 @@ function osc_init()
     -- Volume Slider
     --[[
 
-    local posF = function () 
+    local posF = function ()
         if not(mp.property_get("volume") == nil) then
             return tonumber(mp.property_get("volume"))
         else
@@ -965,8 +965,6 @@ function render()
     --end
     --ass:append("Build time: " .. (mp.get_timer() - now)*1000 .." ms")
 
-
-
     --[[
     ass:new_event()
     ass:pos(x, y)
@@ -975,7 +973,7 @@ function render()
         ass:append("-")
     else
         ass:append("+")
-    end 
+    end
     -- set canvas size
     --mp.set_osd_ass(osc_geo.playresx, osc_geo.playresy, ass.text)
     --]]
@@ -999,7 +997,7 @@ function render()
         area_y1 = (osc_param.posY + (osc_param.osc_h / 2))
          + get_align(-1 + osc_param.deadzonedist, osc_param.playresy - (osc_param.posY + (osc_param.osc_h / 2)), 0, 0)
     end
-    
+
     mp.set_mouse_area(0, area_y0, osc_param.playresx, area_y1)
 
 end
