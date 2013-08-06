@@ -116,7 +116,7 @@ SOURCES-$(XV)                   += video/out/vo_xv.c
 SOURCES-$(VF_LAVFI)             += video/filter/vf_lavfi.c
 SOURCES-$(AF_LAVFI)             += audio/filter/af_lavfi.c
 
-SOURCES-$(LUA)                  += core/mp_lua.c
+SOURCES-$(LUA)                  += mpvcore/mp_lua.c
 
 ifeq ($(HAVE_AVUTIL_REFCOUNTING),no)
     SOURCES-yes                 += video/decode/lavc_dr1.c
@@ -372,20 +372,20 @@ sub/osd_libass.c: sub/osd_font.h
 sub/osd_font.h: TOOLS/file2string.pl sub/osd_font.otf
 	./$^ >$@
 
-core/mp_lua.c: core/lua/defaults.inc
-core/lua/defaults.inc: TOOLS/file2string.pl core/lua/defaults.lua
+mpvcore/mp_lua.c: mpvcore/lua/defaults.inc
+mpvcore/lua/defaults.inc: TOOLS/file2string.pl mpvcore/lua/defaults.lua
 	./$^ >$@
 
-core/mp_lua.c: core/lua/assdraw.inc
-core/lua/assdraw.inc: TOOLS/file2string.pl core/lua/assdraw.lua
+mpvcore/mp_lua.c: mpvcore/lua/assdraw.inc
+mpvcore/lua/assdraw.inc: TOOLS/file2string.pl mpvcore/lua/assdraw.lua
 	./$^ >$@
 
-core/mp_lua.c: core/lua/helpers.inc
-core/lua/helpers.inc: TOOLS/file2string.pl core/lua/helpers.lua
+mpvcore/mp_lua.c: mpvcore/lua/helpers.inc
+mpvcore/lua/helpers.inc: TOOLS/file2string.pl mpvcore/lua/helpers.lua
 	./$^ >$@
 
-core/mp_lua.c: core/lua/osc.inc
-core/lua/osc.inc: TOOLS/file2string.pl core/lua/osc.lua
+mpvcore/mp_lua.c: mpvcore/lua/osc.inc
+mpvcore/lua/osc.inc: TOOLS/file2string.pl mpvcore/lua/osc.lua
 	./$^ >$@
 
 # ./configure must be rerun if it changed
@@ -458,10 +458,10 @@ clean:
 	-$(RM) demux/ebml_types.h demux/ebml_defs.c
 	-$(RM) video/out/gl_video_shaders.h
 	-$(RM) sub/osd_font.h
-	-$(RM) core/lua/defaults.inc
-	-$(RM) core/lua/assdraw.inc
-	-$(RM) core/lua/helpers.inc
-	-$(RM) core/lua/osc.inc
+	-$(RM) mpvcore/lua/defaults.inc
+	-$(RM) mpvcore/lua/assdraw.inc
+	-$(RM) mpvcore/lua/helpers.inc
+	-$(RM) mpvcore/lua/osc.inc
 
 distclean: clean
 	-$(RM) config.log config.mak config.h TAGS tags

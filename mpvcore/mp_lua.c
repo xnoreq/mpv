@@ -20,7 +20,7 @@
 #include "path.h"
 
 // List of builtin modules and their contents as strings.
-// All these are generated from core/lua/*.lua
+// All these are generated from mpvcore/lua/*.lua
 static const char *builtin_lua_scripts[][2] = {
     {"mp.defaults",
 #   include "lua/defaults.inc"
