@@ -585,8 +585,11 @@ void mp_lua_init(struct MPContext *mpctx)
 {
     mpctx->lua_ctx = talloc_zero(NULL, struct lua_ctx);
     // Load scripts from options
-    if (mpctx->opts->lua_file && mpctx->opts->lua_file[0])
-        mp_lua_load_script(mpctx, mpctx->opts->lua_file);
+    char **files = mpctx->opts->lua_files;
+    for (int n = 0; files && files[n]; n++) {
+        if (files[n][0])
+            mp_lua_load_script(mpctx, files[n]);
+    }
 }
 
 void mp_lua_uninit(struct MPContext *mpctx)

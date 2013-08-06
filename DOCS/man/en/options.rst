@@ -1189,7 +1189,8 @@
     is looped.
 
 ``--lua=<filename>``
-    Load a Lua script.
+    Load a Lua script. You can load multiple scripts by separating them with
+    commas (``,``).
 
 ``--mc=<seconds/frame>``
     Maximum A-V sync correction per frame (in seconds)
