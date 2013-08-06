@@ -91,7 +91,7 @@ end
 
 local callbacks = {}
 -- each script has its own section, so that they don't conflict
-local section = "input_" .. mp.script_name
+local default_section = "input_" .. mp.script_name
 
 -- Set the list of key bindings. These will override the user's bindings, so
 -- you should use this sparingly.
@@ -112,7 +112,7 @@ local section = "input_" .. mp.script_name
 -- callback can be a string too, in which case the following will be added like
 -- an input.conf line: key .. " " .. callback
 -- (And callback_down is ignored.)
-function set_key_bindings(list)
+function mp.set_key_bindings(list, section)
     local cfg = ""
     for i = 1, #list do
         local entry = list[i]
@@ -127,19 +127,19 @@ function set_key_bindings(list)
             cfg = cfg .. key .. " " .. cb .. "\n"
         end
     end
-    mp.input_define_section(section, cfg)
+    mp.input_define_section(section or default_section, cfg)
 end
 
-function enable_key_bindings()
-    mp.input_enable_section(section)
+function mp.enable_key_bindings(section)
+    mp.input_enable_section(section or default_section)
 end
 
-function disable_key_bindings()
-    mp.input_disable_section(section)
+function mp.disable_key_bindings(section)
+    mp.input_disable_section(section or default_section)
 end
 
-function set_mouse_area(x0, y0, x1, y1)
-    mp.input_set_section_mouse_area(section, x0, y0, x1, y1)
+function mp.set_mouse_area(x0, y0, x1, y1, section)
+    mp.input_set_section_mouse_area(section or default_section, x0, y0, x1, y1)
 end
 
 --[[

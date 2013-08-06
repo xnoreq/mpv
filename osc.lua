@@ -1000,7 +1000,7 @@ function render()
          + get_align(-1 + osc_param.deadzonedist, osc_param.playresy - (osc_param.posY + (osc_param.osc_h / 2)), 0, 0)
     end
     
-    set_mouse_area(0, area_y0, osc_param.playresx, area_y1)
+    mp.set_mouse_area(0, area_y0, osc_param.playresx, area_y1)
 
 end
 
@@ -1078,7 +1078,7 @@ function mp_event(name, arg)
     end
 end
 
-set_key_bindings {
+mp.set_key_bindings {
     {"mouse_btn0",              function(e) process_event("mouse_btn0", "up") end,
                                 function(e) process_event("mouse_btn0", "down")  end},
     {"shift+mouse_btn0",        function(e) process_event("shift+mouse_btn0", "up") end,
@@ -1091,4 +1091,4 @@ set_key_bindings {
     {"shift+mouse_btn0_dbl",    "ignore"},
     {"mouse_btn2_dbl",          "ignore"},
 }
-enable_key_bindings()
+mp.enable_key_bindings()
