@@ -384,6 +384,10 @@ core/mp_lua.c: core/lua/helpers.inc
 core/lua/helpers.inc: TOOLS/file2string.pl core/lua/helpers.lua
 	./$^ >$@
 
+core/mp_lua.c: core/lua/osc.inc
+core/lua/osc.inc: TOOLS/file2string.pl core/lua/osc.lua
+	./$^ >$@
+
 # ./configure must be rerun if it changed
 config.mak: configure
 	@echo "############################################################"
@@ -457,6 +461,7 @@ clean:
 	-$(RM) core/lua/defaults.inc
 	-$(RM) core/lua/assdraw.inc
 	-$(RM) core/lua/helpers.inc
+	-$(RM) core/lua/osc.inc
 
 distclean: clean
 	-$(RM) config.log config.mak config.h TAGS tags

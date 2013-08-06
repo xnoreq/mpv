@@ -31,6 +31,9 @@ static const char *builtin_lua_scripts[][2] = {
     {"mp.helpers",
 #   include "lua/helpers.inc"
     },
+    {"@osc",
+#   include "lua/osc.inc"
+    },
     {0}
 };
 
@@ -149,6 +152,19 @@ static int load_builtin(lua_State *L)
     return 0;
 }
 
+// Execute "require " .. name
+static bool require(lua_State *L, const char *name)
+{
+    char buf[80];
+    // Lazy, but better than calling the "require" function manually
+    snprintf(buf, sizeof(buf), "require '%s'", name);
+    if (luaL_loadstring(L, buf) || lua_pcall(L, 0, 0, 0)) {
+        report_error(L);
+        return false;
+    }
+    return true;
+}
+
 static void mp_lua_load_script(struct MPContext *mpctx, const char *fname)
 {
     struct lua_ctx *lctx = mpctx->lua_ctx;
@@ -195,15 +211,20 @@ static void mp_lua_load_script(struct MPContext *mpctx, const char *fname)
 
     assert(lua_gettop(L) == 0);
 
-    if (luaL_loadstring(L, "require 'mp.defaults'") || lua_pcall(L, 0, 0, 0)) {
+    if (!require(L, "mp.defaults")) {
         report_error(L);
         goto error_out;
     }
 
     assert(lua_gettop(L) == 0);
 
-    if (load_file(ctx, fname) < 0)
-        goto error_out;
+    if (fname[0] == '@') {
+        if (!require(L, fname))
+            goto error_out;
+    } else {
+        if (load_file(ctx, fname) < 0)
+            goto error_out;
+    }
 
     MP_TARRAY_APPEND(lctx, lctx->scripts, lctx->num_scripts, ctx);
     return;
