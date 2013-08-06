@@ -372,8 +372,16 @@ sub/osd_libass.c: sub/osd_font.h
 sub/osd_font.h: TOOLS/file2string.pl sub/osd_font.otf
 	./$^ >$@
 
-core/mp_lua.c: core/lua_defaults.h
-core/lua_defaults.h: TOOLS/file2string.pl core/defaults.lua
+core/mp_lua.c: core/lua/defaults.inc
+core/lua/defaults.inc: TOOLS/file2string.pl core/lua/defaults.lua
+	./$^ >$@
+
+core/mp_lua.c: core/lua/assdraw.inc
+core/lua/assdraw.inc: TOOLS/file2string.pl core/lua/assdraw.lua
+	./$^ >$@
+
+core/mp_lua.c: core/lua/helpers.inc
+core/lua/helpers.inc: TOOLS/file2string.pl core/lua/helpers.lua
 	./$^ >$@
 
 # ./configure must be rerun if it changed
@@ -446,7 +454,9 @@ clean:
 	-$(RM) demux/ebml_types.h demux/ebml_defs.c
 	-$(RM) video/out/gl_video_shaders.h
 	-$(RM) sub/osd_font.h
-	-$(RM) core/lua_defaults.h
+	-$(RM) core/lua/defaults.inc
+	-$(RM) core/lua/assdraw.inc
+	-$(RM) core/lua/helpers.inc
 
 distclean: clean
 	-$(RM) config.log config.mak config.h TAGS tags

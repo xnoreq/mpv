@@ -1,6 +1,6 @@
 -- osc.lua
 
-local assdraw = require 'assdraw'
+local assdraw = require 'mp.assdraw'
 
 --
 -- Parameters

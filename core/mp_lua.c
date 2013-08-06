@@ -19,10 +19,20 @@
 #include "osdep/timer.h"
 #include "path.h"
 
-static const char lua_defaults[] =
-// Generated from defaults.lua
-#include "lua_defaults.h"
-;
+// List of builtin modules and their contents as strings.
+// All these are generated from core/lua/*.lua
+static const char *builtin_lua_scripts[][2] = {
+    {"mp.defaults",
+#   include "lua/defaults.inc"
+    },
+    {"mp.assdraw",
+#   include "lua/assdraw.inc"
+    },
+    {"mp.helpers",
+#   include "lua/helpers.inc"
+    },
+    {0}
+};
 
 // Represents a loaded script. Each has its own Lua state.
 struct script_ctx {
@@ -125,6 +135,20 @@ static int load_file(struct script_ctx *ctx, const char *fname)
     return r;
 }
 
+static int load_builtin(lua_State *L)
+{
+    const char *name = luaL_checkstring(L, 1);
+    for (int n = 0; builtin_lua_scripts[n][0]; n++) {
+        if (strcmp(name, builtin_lua_scripts[n][0]) == 0) {
+            if (luaL_loadstring(L, builtin_lua_scripts[n][1]))
+                lua_error(L);
+            lua_call(L, 0, 1);
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static void mp_lua_load_script(struct MPContext *mpctx, const char *fname)
 {
     struct lua_ctx *lctx = mpctx->lua_ctx;
@@ -153,12 +177,25 @@ static void mp_lua_load_script(struct MPContext *mpctx, const char *fname)
 
     add_functions(ctx); // mp
 
-    lua_pushstring(L, ctx->name);
-    lua_setfield(L, -2, "script_name");
+    lua_pushstring(L, ctx->name); // mp name
+    lua_setfield(L, -2, "script_name"); // mp
 
     lua_pop(L, 1); // -
 
-    if (luaL_loadstring(L, lua_defaults) || lua_pcall(L, 0, 0, 0)) {
+    // Add a preloader for each builtin Lua module
+    lua_getglobal(L, "package"); // package
+    assert(lua_type(L, -1) == LUA_TTABLE);
+    lua_getfield(L, -1, "preload"); // package preload
+    assert(lua_type(L, -1) == LUA_TTABLE);
+    for (int n = 0; builtin_lua_scripts[n][0]; n++) {
+        lua_pushcfunction(L, load_builtin); // package preload load_builtin
+        lua_setfield(L, -2, builtin_lua_scripts[n][0]);
+    }
+    lua_pop(L, 2); // -
+
+    assert(lua_gettop(L) == 0);
+
+    if (luaL_loadstring(L, "require 'mp.defaults'") || lua_pcall(L, 0, 0, 0)) {
         report_error(L);
         goto error_out;
     }

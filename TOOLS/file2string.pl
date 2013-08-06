@@ -3,6 +3,12 @@
 use strict;
 use warnings;
 
+use Getopt::Long;
+
+my %opt;
+my $header = '';
+GetOptions(\%opt, "header=s" => \$header);
+
 # Convert the contents of a file into a C string constant.
 # Note that the compiler will implicitly add an extra 0 byte at the end
 # of every string, so code using the string may need to remove that to get
@@ -15,6 +21,7 @@ my $unsafe_chars = qr{[^][A-Za-z0-9!#%&'()*+,./:;<=>?^_{|}~ -]};
 for my $file (@ARGV) {
     open my $fh, '<:raw', $file or next;
     print "/* Generated from $file */\n";
+    print "\"$header\"";
     while (<$fh>) {
         # replace unsafe chars with their equivalent octal escapes
         s/($unsafe_chars)/\\@{[sprintf '%03o', ord($1)]}/gos;
