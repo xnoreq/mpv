@@ -1328,6 +1328,9 @@
     search for video segments from other files, and will also ignore any
     chapter order specified for the main file.
 
+``--osc``, ``--no-osc``
+    Whether to load the on-screen-controller (default: no).
+
 ``--no-osd-bar``, ``--osd-bar``
     Disable display of the OSD bar. This will make some things (like seeking)
     use OSD text messages instead of the bar.

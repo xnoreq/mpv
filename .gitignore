@@ -10,7 +10,7 @@
 /mpv
 /mpv.app
 /version.h
-/core/input/input_conf.h
+/mpvcore/input/input_conf.h
 /tags
 /TAGS
 /video/out/gl_video_shaders.h
@@ -18,6 +18,6 @@
 /demux/ebml_defs.c
 /demux/ebml_types.h
 /sub/osd_font.h
-/core/lua/*.inc
+/mpvcore/lua/*.inc
 /DOCS/man/*/mpv.1
 
