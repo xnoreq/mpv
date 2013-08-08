@@ -21,6 +21,7 @@
 #include <libavcodec/avcodec.h>
 #include <libavutil/intreadwrite.h>
 #include <libavutil/common.h>
+#include <libavutil/opt.h>
 
 #include "config.h"
 
@@ -32,6 +33,7 @@
 
 struct sd_lavc_priv {
     AVCodecContext *avctx;
+    char *buf;
 };
 
 static bool supports_format(const char *format)
@@ -69,6 +71,33 @@ static void disable_styles(bstr header)
     }
 }
 
+// libavcodec has a forced, unskippable UTF-8 check on subtitle converter
+// output. Since we don't just want libavcodec to spam errors and drop
+// subtitles if they happen to be encoded in some legacy codepage, we let
+// libavcodec first convert the input to ISO8859-1 (making it believe the
+// input was well-encoded), and then we do a lossless conversion back.
+// ISO8859-1 (also known as Latin-1) shares the same codepoints as unicode,
+// so the conversion back decodes the UTF-8 and uses the result directly.
+// Assumes all other strings (such as ASS tags inserted by the subtitle
+// converter) are in 7-bit clean ASCII.
+// As far as I remember, this fix has been proposed by Nicolas George.
+static char *nicolas_george_fix(struct sd *sd, char *in)
+{
+    struct sd_lavc_priv *priv = sd->priv;
+    bstr s = bstr0(in);
+    if (talloc_get_size(priv->buf) < s.len + 1)
+        priv->buf = talloc_realloc(priv, priv->buf, char, s.len + 1);
+    char *dst = priv->buf;
+    while (1) {
+        int c = bstr_decode_utf8(s, &s);
+        if (c < 0)
+            break;
+        *dst++ = c;
+    }
+    *dst++ = '\0';
+    return priv->buf;
+}
+
 static int init(struct sd *sd)
 {
     struct sd_lavc_priv *priv = talloc_zero(NULL, struct sd_lavc_priv);
@@ -81,6 +110,8 @@ static int init(struct sd *sd)
         goto error;
     avctx->extradata_size = sd->extradata_len;
     avctx->extradata = sd->extradata;
+    // see nicolas_george_fix()
+    av_opt_set(avctx, "sub_charenc", "ISO8859-1", 0);
     if (avcodec_open2(avctx, codec, NULL) < 0)
         goto error;
     // Documented as "set by libavcodec", but there is no other way
@@ -129,6 +160,7 @@ static void decode(struct sd *sd, struct demux_packet *packet)
             // This might contain embedded timestamps, using the "old" ffmpeg
             // ASS packet format, in which case pts/duration might be ignored
             // at a later point.
+            ass_line = nicolas_george_fix(sd, ass_line);
             sd_conv_add_packet(sd, ass_line, strlen(ass_line),
                                packet->pts, packet->duration);
         }
