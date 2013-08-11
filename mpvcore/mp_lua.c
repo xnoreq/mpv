@@ -107,7 +107,10 @@ static void add_functions(struct script_ctx *ctx);
 static char *script_name_from_filename(void *talloc_ctx, struct lua_ctx *lctx,
                                        const char *fname)
 {
-    char *name = talloc_strdup(talloc_ctx, mp_basename(fname));
+    fname = mp_basename(fname);
+    if (fname[0] == '@')
+        fname += 1;
+    char *name = talloc_strdup(talloc_ctx, fname);
     // Drop .lua extension
     char *dot = strrchr(name, '.');
     if (dot)
