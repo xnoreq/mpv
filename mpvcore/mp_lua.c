@@ -253,6 +253,19 @@ static void kill_script(struct script_ctx *ctx)
     talloc_free(ctx);
 }
 
+static int find_config_file(lua_State *L)
+{
+    const char *s = luaL_checkstring(L, 1);
+    char *path = mp_find_user_config_file(s);
+    if (path) {
+        lua_pushstring(L, path);
+    } else {
+        lua_pushnil(L);
+    }
+    talloc_free(path);
+    return 1;
+}
+
 static int run_event(lua_State *L)
 {
     lua_getglobal(L, "mp_event"); // name arg mp_event
@@ -535,6 +548,9 @@ static int input_set_section_mouse_area(lua_State *L)
 static void add_functions(struct script_ctx *ctx)
 {
     lua_State *L = ctx->state;
+
+    lua_pushcfunction(L, find_config_file);
+    lua_setfield(L, -2, "find_config_file");
 
     lua_pushcfunction(L, send_command);
     lua_setfield(L, -2, "send_command");
