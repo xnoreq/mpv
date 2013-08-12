@@ -61,6 +61,7 @@ extern struct vo_driver video_out_direct3d;
 extern struct vo_driver video_out_direct3d_shaders;
 extern struct vo_driver video_out_sdl;
 extern struct vo_driver video_out_corevideo;
+extern struct vo_driver video_out_vaapi;
 
 const struct vo_driver *video_out_drivers[] =
 {
@@ -85,6 +86,9 @@ const struct vo_driver *video_out_drivers[] =
 #endif
 #ifdef CONFIG_GL
         &video_out_opengl_old,
+#endif
+#ifdef CONFIG_VAAPI
+        &video_out_vaapi,
 #endif
 #ifdef CONFIG_X11
         &video_out_x11,
@@ -289,8 +293,8 @@ void vo_destroy(struct vo *vo)
 {
     if (vo->registered_fd != -1)
         mp_input_rm_key_fd(vo->input_ctx, vo->registered_fd);
+    mp_image_unrefp(&vo->waiting_mpi);
     vo->driver->uninit(vo);
-    talloc_free(vo->waiting_mpi);
     talloc_free(vo);
 }
 

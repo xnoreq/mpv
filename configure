@@ -348,6 +348,7 @@ Video output:
   --enable-sdl2            enable SDL 2.0+ audio and video output [disable]
   --enable-xv              enable Xv video output [autodetect]
   --enable-vdpau           enable VDPAU acceleration [autodetect]
+  --enable-vaapi           enable VAAPI acceleration [autodetect]
   --enable-vm              enable XF86VidMode support [autodetect]
   --enable-xinerama        enable Xinerama support [autodetect]
   --enable-x11             enable X11 video output [autodetect]
@@ -422,6 +423,7 @@ _wayland=auto
 _xss=auto
 _xv=auto
 _vdpau=auto
+_vaapi=auto
 _direct3d=auto
 _sdl=no
 _sdl2=no
@@ -584,6 +586,8 @@ for ac_option do
   --disable-xv)         _xv=no          ;;
   --enable-vdpau)       _vdpau=yes      ;;
   --disable-vdpau)      _vdpau=no       ;;
+  --enable-vaapi)       _vaapi=yes      ;;
+  --disable-vaapi)      _vaapi=no       ;;
   --enable-direct3d)    _direct3d=yes   ;;
   --disable-direct3d)   _direct3d=no    ;;
   --enable-sdl)         _sdl=yes       ;;
@@ -1845,6 +1849,23 @@ if test "$_vdpau" = yes ; then
 else
   def_vdpau='#define CONFIG_VDPAU 0'
   novomodules="vdpau $novomodules"
+fi
+echores "$_vdpau"
+
+
+echocheck "VAAPI"
+if test "$_vaapi" = auto && test "$_x11" = yes ; then
+  _vaapi=no
+  if test "$_dl" = yes ; then
+    pkg_config_add 'libva >= 0.32.0 libva-x11 >= 0.32.0' && _vaapi=yes
+  fi
+fi
+if test "$_vaapi" = yes ; then
+  def_vaapi='#define CONFIG_VAAPI 1'
+  vomodules="vaapi $vomodules"
+else
+  def_vaapi='#define CONFIG_VAAPI 0'
+  novomodules="vaapi $novomodules"
 fi
 echores "$_vdpau"
 
@@ -3131,6 +3152,7 @@ VCD = $_vcd
 VDPAU = $_vdpau
 VDPAU_DEC = $_vdpau_dec
 VDPAU_DEC_OLD = $_vdpau_dec_old
+VAAPI = $_vaapi
 WIN32 = $_win32
 X11 = $_x11
 WAYLAND = $_wayland
@@ -3140,6 +3162,7 @@ XV = $_xv
 ENCODING = $_encoding
 
 CONFIG_VDPAU    = $_vdpau
+CONFIG_VAAPI    = $_vaapi
 CONFIG_ZLIB     = $_zlib
 
 HAVE_PTHREADS   = $_pthreads
@@ -3307,6 +3330,7 @@ $def_jpeg
 $def_mng
 $def_v4l2
 $def_vdpau
+$def_vaapi
 $def_vm
 $def_x11
 $def_wayland
