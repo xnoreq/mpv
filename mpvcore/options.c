@@ -29,6 +29,7 @@
 
 #include "mpvcore/options.h"
 #include "config.h"
+#include "version.h"
 #include "mpvcore/m_config.h"
 #include "mpvcore/m_option.h"
 #include "stream/tv.h"
@@ -43,7 +44,7 @@
 
 int   network_bandwidth=0;
 int   network_cookies_enabled = 0;
-char *network_useragent="MPlayer 1.1-4.7";
+char *network_useragent="mpv " VERSION;
 char *network_referrer=NULL;
 char **network_http_header_fields=NULL;
 
@@ -814,6 +815,11 @@ const struct MPOpts mp_default_opts = {
     .ass_style_override = 1,
     .use_embedded_fonts = 1,
     .suboverlap_enabled = 0,
+#ifdef CONFIG_ENCA
+    .sub_cp = "enca",
+#else
+    .sub_cp = "UTF-8:UTF-8-BROKEN",
+#endif
 
     .hwdec_codecs = "all",
 

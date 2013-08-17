@@ -162,17 +162,13 @@ static void release_surface(void *ptr)
     talloc_free(state);
 }
 
-static struct mp_image *allocate_image(struct lavc_ctx *ctx, AVFrame *frame)
+static struct mp_image *allocate_image(struct lavc_ctx *ctx, int imgfmt,
+                                       int w, int h)
 {
     struct priv *p = ctx->hwdec_priv;
-    int imgfmt = pixfmt2imgfmt(frame->format);
 
     if (!IMGFMT_IS_VDPAU(imgfmt))
         return NULL;
-
-    // frame->width/height lie. Using them breaks with non-mod 16 video.
-    int w = ctx->avctx->width;
-    int h = ctx->avctx->height;
 
     if (w != p->vid_width || h != p->vid_height || imgfmt != p->image_format) {
         p->vid_width = w;
@@ -251,12 +247,13 @@ static int probe(struct vd_lavc_hwdec *hwdec, struct mp_hwdec_info *info,
     return 0;
 }
 
-static void fix_image(struct lavc_ctx *ctx, struct mp_image *img)
+static struct mp_image *process_image(struct lavc_ctx *ctx, struct mp_image *img)
 {
     // Make it follow the convention of the "new" vdpau decoder
     struct vdpau_render_state *rndr = (void *)img->planes[0];
     img->planes[0] = (void *)"dummy"; // must be non-NULL, otherwise arbitrary
     img->planes[3] = (void *)(intptr_t)rndr->surface;
+    return img;
 }
 
 const struct vd_lavc_hwdec mp_vd_lavc_vdpau_old = {
@@ -276,8 +273,9 @@ const struct vd_lavc_hwdec mp_vd_lavc_vdpau_old = {
         "mpeg4",        "mpeg4_vdpau",
         NULL
     },
+    .probe = probe,
     .init = init,
     .uninit = uninit,
     .allocate_image = allocate_image,
-    .fix_image = fix_image,
+    .process_image = process_image,
 };

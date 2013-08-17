@@ -565,7 +565,14 @@ static struct mp_image *get_surface_hwdec(struct sh_video *sh, AVFrame *pic)
     if (!IMGFMT_IS_HWACCEL(imgfmt))
         return NULL;
 
-    struct mp_image *mpi = ctx->hwdec->allocate_image(ctx, pic);
+    // Using frame->width/height is bad. For non-mod 16 video (which would
+    // require alignment of frame sizes) we want the decoded size, not the
+    // aligned size. At least vdpau needs this: the video mixer is created
+    // with decoded size, and the video surfaces must have matching size.
+    int w = ctx->avctx->width;
+    int h = ctx->avctx->height;
+
+    struct mp_image *mpi = ctx->hwdec->allocate_image(ctx, imgfmt, w, h);
 
     if (mpi) {
         for (int i = 0; i < 4; i++)
@@ -740,8 +747,8 @@ static int decode(struct sh_video *sh, struct demux_packet *packet,
     struct mp_image *mpi = image_from_decoder(sh);
     assert(mpi->planes[0]);
 
-    if (ctx->hwdec && ctx->hwdec->fix_image)
-        ctx->hwdec->fix_image(ctx, mpi);
+    if (ctx->hwdec && ctx->hwdec->process_image)
+        ctx->hwdec->process_image(ctx, mpi);
 
     mpi->colorspace = ctx->image_params.colorspace;
     mpi->levels = ctx->image_params.colorlevels;

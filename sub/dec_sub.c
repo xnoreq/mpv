@@ -286,7 +286,7 @@ static const char *guess_sub_cp(struct packet_list *subs, const char *usercp)
         memcpy(text.start + text.len + pkt->len, sep, sep_len);
         text.len += pkt->len + sep_len;
     }
-    const char *guess = mp_charset_guess(text, usercp);
+    const char *guess = mp_charset_guess(text, usercp, 0);
     talloc_free(text.start);
     return guess;
 }
@@ -301,6 +301,8 @@ static void multiply_timings(struct packet_list *subs, double factor)
             pkt->duration *= factor;
     }
 }
+
+#define MS_TS(f_ts) ((int)((f_ts) * 1000 + 0.5))
 
 // Remove overlaps and fill gaps between adjacent subtitle packets. This is done
 // by adjusting the duration of the earlier packet. If the gaps or overlap are
@@ -322,7 +324,10 @@ static void fix_overlaps_and_gaps(struct packet_list *subs)
             if (fabs(next->pts - end) <= threshold && cur->duration >= keep &&
                 next->duration >= keep)
             {
-                cur->duration = next->pts - cur->pts;
+                // Conceptually: cur->duration = next->pts - cur->pts;
+                // But make sure the rounding and conversion to integers in
+                // sd_ass.c can't produce overlaps.
+                cur->duration = (MS_TS(next->pts) - MS_TS(cur->pts)) / 1000.0;
             }
         }
     }
@@ -401,7 +406,7 @@ bool sub_read_all_packets(struct dec_sub *sub, struct sh_sub *sh)
     if (opts->sub_cp && !sh->is_utf8)
         sub->charset = guess_sub_cp(subs, opts->sub_cp);
 
-    if (sub->charset && sub->charset[0])
+    if (sub->charset && sub->charset[0] && !mp_charset_is_utf8(sub->charset))
         mp_msg(MSGT_OSD, MSGL_INFO, "Using subtitle charset: %s\n", sub->charset);
 
     double sub_speed = 1.0;

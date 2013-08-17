@@ -61,8 +61,10 @@ struct vd_lavc_hwdec {
                  const char *decoder);
     int (*init)(struct lavc_ctx *ctx);
     void (*uninit)(struct lavc_ctx *ctx);
-    struct mp_image *(*allocate_image)(struct lavc_ctx *ctx, AVFrame *frame);
-    void (*fix_image)(struct lavc_ctx *ctx, struct mp_image *img);
+    struct mp_image *(*allocate_image)(struct lavc_ctx *ctx, int fmt,
+                                       int w, int h);
+    // Process the image returned by the libavcodec decoder.
+    struct mp_image *(*process_image)(struct lavc_ctx *ctx, struct mp_image *img);
 };
 
 enum {
