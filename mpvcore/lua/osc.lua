@@ -6,15 +6,30 @@ local assdraw = require 'mp.assdraw'
 -- Parameters
 --
 
-local osc_param = {
-    -- user-safe
-    scaleWindow = 1,                        -- scaling of the controller when windowed
-    scaleFS = 1,                            -- scaling of the controller when fullscreen
+local user_opts = {
+    -- default user option values
+    -- do not touch, change them in luasettings_osc.conf
+
+    scaleWindowed = 1,                      -- scaling of the controller when windowed
+    scaleFullscreen = 1,                    -- scaling of the controller when fullscreen
     vidscale = true,                        -- scale the controller with the video?
     valign = 0.8,                           -- vertical alignment, -1 (top) to 1 (bottom)
     halign = 0,                             -- horizontal alignment, -1 (left) to 1 (right)
     deadzonedist = 0.15,                    -- distance between OSC and deadzone
     iAmAProgrammer = false,                 -- start counting stuff at 0 and disable OSC internal playlist management (and some functions that depend on it)
+}
+
+local osc_param = {
+    -- user-safe
+    --[[
+    scaleWindowed = 1,                        -- scaling of the controller when windowed
+    scaleFullscreen = 1,                            -- scaling of the controller when fullscreen
+    vidscale = true,                        -- scale the controller with the video?
+    valign = 0.8,                           -- vertical alignment, -1 (top) to 1 (bottom)
+    halign = 0,                             -- horizontal alignment, -1 (left) to 1 (right)
+    deadzonedist = 0.15,                    -- distance between OSC and deadzone
+    iAmAProgrammer = false,                 -- start counting stuff at 0 and disable OSC internal playlist management (and some functions that depend on it)
+    --]]
 
     -- not user-safe
     osc_w = 550,                            -- width, height, corner-radius, padding of the OSC box
@@ -58,6 +73,106 @@ local state = {
 }
 
 --
+-- User Settings Management
+--
+
+function val2str(val)
+    local strval = val
+    if type(val) == "boolean" then
+        if val then strval = "yes" else strval = "no" end
+    end
+
+    return strval
+end
+
+-- converts val to type of desttypeval
+function typeconv(desttypeval, val)
+    if type(desttypeval) == "boolean" then
+        if val == "yes" then
+            val = true
+        elseif val == "no" then
+            val = false
+        else
+            print("\n Error: Can't convert " .. val .." to boolean!")
+            val = nil
+        end
+    elseif type(desttypeval) == "number" then
+        if not (tonumber(val) == nil) then
+            val = tonumber(val)
+        else
+            print("\n Error: Can't convert " .. val .." to number!")
+            val = nil
+        end
+    end
+    return val
+end
+
+-- Automagical config handling
+-- options:     A table with options settable via config with assigned default values. The type of the default values is important for
+--              converting the values read from the config file back. Do not use "nil" as a default value!
+-- identifier:  A simple indentifier for the config file. Make sure this doesn't collide with other scripts.
+
+-- How does it work:
+-- Existence of the configfile will be checked, if it doesn't exists, the default values from the options table will be written in a new
+-- file, commented out. If it exits, the key/value pairs will be read, and values of keys that exist in the options table, will overwrite
+-- their value. Keys that don't exist in the options table will be ignored, keys that don't exits in the config will keep their default
+-- value. The value's types will automatically be converted to the type used in the options table.
+function read_config(options, identifier)
+
+    local conffilename = "luasettings_" .. identifier .. ".conf"
+    local conffile = mp.find_config_file(conffilename)
+    local f = io.open(conffile,"r")
+    if f == nil then
+        print("\n"..conffile.." does not exist, creating it ...\n")
+        -- so create it, write default options
+        local f = io.open(conffile,"w+")
+        f:write("# Config file for "..identifier.."\n# <-- works only at beginning of line.\n# Do not have any spare spaces flying around.\n\n")
+        -- iterate over the options table
+        for key, value in pairs(options) do
+            f:write("#" .. key .. "=" .. val2str(value) .. "\n")
+        end
+        io.close(f)
+
+    else
+        -- config exists, read values
+        -- print("\n"..conffile.." exists\n")
+        local linecounter = 1
+        for line in f:lines() do
+            if string.find(line, "#") == 1 then
+                --print("\n"..conffilename..":"..linecounter.." comment line, ignoring")
+            else
+                local eqpos = string.find(line, "=")
+                if eqpos == nil then
+                    --print("\n"..conffilename..":"..linecounter.." no = found, ignoring")
+                else
+                    local key = string.sub(line, 1, eqpos-1)
+                    local val = string.sub(line, eqpos+1)
+                    -- print("\n"..conffilename..":"..linecounter.." found valid line: " .. key .. " - " .. val)
+
+                    -- match found values with defaults
+                    if options[key] == nil then
+                        print("\n"..conffilename..":"..linecounter.." unknown key " .. key .. ", ignoring")
+                    else
+                        local convval = typeconv(options[key], val)
+                        if convval == nil then
+                            print("\n"..conffilename..":"..linecounter.." error converting value '" .. val .. "' for key '" .. key .. "'")
+                        else
+                            options[key] = convval
+                        end
+                    end
+                end
+            end
+            linecounter = linecounter + 1
+        end
+        io.close(f)
+    end
+end
+
+-- read configfile
+read_config(user_opts, "osc")
+
+
+--
 -- Helperfunctions
 --
 
@@ -71,7 +186,8 @@ end
 function get_hitbox_coords(x, y, an, w, h)
 
     local alignments = {
-      [1] = function () return x, y-h, x+w, y end,
+      [1] = function () return x, y-h, x+
+      w, y end,
       [2] = function () return x-(w/2), y-h, x+(w/2), y end,
       [3] = function () return x-w, y-h, x, y end,
 
@@ -120,7 +236,7 @@ function get_slider_value(element)
 end
 
 function countone(val)
-    if not (osc_param.iAmAProgrammer) then
+    if not (user_opts.iAmAProgrammer) then
         val = val + 1
     end
     return val
@@ -517,13 +633,13 @@ function osc_init()
     local scale = 1
 
     if (mp.property_get("fullscreen") == "yes") then
-        scale = osc_param.scaleFS
+        scale = user_opts.scaleFullscreen
     else
-        scale = osc_param.scaleWindow
+        scale = user_opts.scaleWindowed
     end
 
 
-    if osc_param.vidscale == true then
+    if user_opts.vidscale == true then
         osc_param.playresy = baseResY / scale
     else
         osc_param.playresy = display_h / scale
@@ -531,8 +647,8 @@ function osc_init()
     osc_param.playresx = osc_param.playresy * display_aspect
 
     -- position of the controller according to video aspect and valignment
-    osc_param.posX = math.floor(get_align(osc_param.halign, osc_param.playresx, osc_param.osc_w, 0))
-    osc_param.posY = math.floor(get_align(osc_param.valign, osc_param.playresy, osc_param.osc_h, 0))
+    osc_param.posX = math.floor(get_align(user_opts.halign, osc_param.playresx, osc_param.osc_w, 0))
+    osc_param.posY = math.floor(get_align(user_opts.valign, osc_param.playresy, osc_param.osc_h, 0))
 
     -- Some calculations on stuff we'll need
     -- vertical/horizontal position offset for contents aligned at the borders of the box
@@ -670,7 +786,7 @@ function osc_init()
     -- Smaller buttons
     --
 
-    if not (osc_param.iAmAProgrammer) then
+    if not (user_opts.iAmAProgrammer) then
         update_tracklist()
     end
 
@@ -680,7 +796,7 @@ function osc_init()
     local eventresponder = {}
     local contentF
 
-    if not (osc_param.iAmAProgrammer) then
+    if not (user_opts.iAmAProgrammer) then
         metainfo.enabled = (#tracks_osc.audio > 0)
 
         contentF = function (ass)
@@ -717,7 +833,7 @@ function osc_init()
     local eventresponder = {}
     local contentF
 
-    if not (osc_param.iAmAProgrammer) then
+    if not (user_opts.iAmAProgrammer) then
         metainfo.enabled = (#tracks_osc.sub > 0)
 
         contentF = function (ass)
@@ -987,15 +1103,15 @@ function render()
 
     -- set mouse area
     local area_y0, area_y1
-    if osc_param.valign > 0 then
+    if user_opts.valign > 0 then
         -- deadzone above OSC
-        area_y0 = get_align(1 - osc_param.deadzonedist, osc_param.posY - (osc_param.osc_h / 2), 0, 0)
+        area_y0 = get_align(1 - user_opts.deadzonedist, osc_param.posY - (osc_param.osc_h / 2), 0, 0)
         area_y1 = osc_param.playresy
     else
         -- deadzone below OSC
         area_y0 = 0
         area_y1 = (osc_param.posY + (osc_param.osc_h / 2))
-         + get_align(-1 + osc_param.deadzonedist, osc_param.playresy - (osc_param.posY + (osc_param.osc_h / 2)), 0, 0)
+         + get_align(-1 + user_opts.deadzonedist, osc_param.playresy - (osc_param.posY + (osc_param.osc_h / 2)), 0, 0)
     end
 
     mp.set_mouse_area(0, area_y0, osc_param.playresx, area_y1)
