@@ -588,22 +588,40 @@ static int input_set_section_mouse_area(lua_State *L)
     return 0;
 }
 
+struct fn_entry {
+    const char *name;
+    int (*fn)(lua_State *L);
+};
+
+#define FN_ENTRY(name) {#name, name}
+
+static struct fn_entry fn_list[] = {
+    {"log", script_log},
+    FN_ENTRY(find_config_file),
+    FN_ENTRY(send_command),
+    FN_ENTRY(property_list),
+    FN_ENTRY(set_osd_ass),
+    FN_ENTRY(get_osd_resolution),
+    FN_ENTRY(get_screen_size),
+    FN_ENTRY(get_mouse_pos),
+    FN_ENTRY(get_timer),
+    FN_ENTRY(get_chapter_list),
+    FN_ENTRY(get_track_list),
+    FN_ENTRY(input_define_section),
+    FN_ENTRY(input_enable_section),
+    FN_ENTRY(input_disable_section),
+    FN_ENTRY(input_set_section_mouse_area),
+};
+
 // On stack: mp table
 static void add_functions(struct script_ctx *ctx)
 {
     lua_State *L = ctx->state;
 
-    lua_pushcfunction(L, script_log);
-    lua_setfield(L, -2, "log");
-
-    lua_pushcfunction(L, find_config_file);
-    lua_setfield(L, -2, "find_config_file");
-
-    lua_pushcfunction(L, send_command);
-    lua_setfield(L, -2, "send_command");
-
-    lua_pushcfunction(L, property_list);
-    lua_setfield(L, -2, "property_list");
+    for (int n = 0; n < MP_ARRAY_SIZE(fn_list); n++) {
+        lua_pushcfunction(L, fn_list[n].fn);
+        lua_setfield(L, -2, fn_list[n].name);
+    }
 
     lua_pushinteger(L, 0);
     lua_pushcclosure(L, property_string, 1);
@@ -612,39 +630,6 @@ static void add_functions(struct script_ctx *ctx)
     lua_pushinteger(L, 1);
     lua_pushcclosure(L, property_string, 1);
     lua_setfield(L, -2, "property_get_string");
-
-    lua_pushcfunction(L, set_osd_ass);
-    lua_setfield(L, -2, "set_osd_ass");
-
-    lua_pushcfunction(L, get_osd_resolution);
-    lua_setfield(L, -2, "get_osd_resolution");
-
-    lua_pushcfunction(L, get_screen_size);
-    lua_setfield(L, -2, "get_screen_size");
-
-    lua_pushcfunction(L, get_mouse_pos);
-    lua_setfield(L, -2, "get_mouse_pos");
-
-    lua_pushcfunction(L, get_timer);
-    lua_setfield(L, -2, "get_timer");
-
-    lua_pushcfunction(L, get_chapter_list);
-    lua_setfield(L, -2, "get_chapter_list");
-
-    lua_pushcfunction(L, get_track_list);
-    lua_setfield(L, -2, "get_track_list");
-
-    lua_pushcfunction(L, input_define_section);
-    lua_setfield(L, -2, "input_define_section");
-
-    lua_pushcfunction(L, input_enable_section);
-    lua_setfield(L, -2, "input_enable_section");
-
-    lua_pushcfunction(L, input_disable_section);
-    lua_setfield(L, -2, "input_disable_section");
-
-    lua_pushcfunction(L, input_set_section_mouse_area);
-    lua_setfield(L, -2, "input_set_section_mouse_area");
 }
 
 void mp_lua_init(struct MPContext *mpctx)
