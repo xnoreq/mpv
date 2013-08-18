@@ -41,6 +41,7 @@ static const char *builtin_lua_scripts[][2] = {
 struct script_ctx {
     const char *name;
     lua_State *state;
+    struct mp_log *log;
     struct MPContext *mpctx;
 };
 
@@ -176,6 +177,8 @@ static void mp_lua_load_script(struct MPContext *mpctx, const char *fname)
         .mpctx = mpctx,
         .name = script_name_from_filename(ctx, lctx, fname),
     };
+    char *log_name = talloc_asprintf(ctx, "lua/%s", ctx->name);
+    ctx->log = mp_log_new(ctx, mpctx->log, log_name);
 
     lua_State *L = ctx->state = luaL_newstate();
     if (!L)
@@ -251,6 +254,47 @@ static void kill_script(struct script_ctx *ctx)
         }
     }
     talloc_free(ctx);
+}
+
+static const char *log_level[] = {
+    [MSGL_FATAL] = "fatal",
+    [MSGL_ERR] = "error",
+    [MSGL_WARN] = "warn",
+    [MSGL_INFO] = "info",
+    [MSGL_V] = "verbose",
+    [MSGL_DBG2] = "debug",
+};
+
+static int script_log(lua_State *L)
+{
+    struct script_ctx *ctx = get_ctx(L);
+
+    const char *level = luaL_checkstring(L, 1);
+    int msgl = -1;
+    for (int n = 0; n < MP_ARRAY_SIZE(log_level); n++) {
+        if (log_level[n] && strcasecmp(log_level[n], level) == 0) {
+            msgl = n;
+            break;
+        }
+    }
+    if (msgl < 0)
+        luaL_error(L, "Invalid log level '%s'", level);
+
+    int elems = lua_gettop(L) - 1;
+    lua_getglobal(L, "tostring"); // args... tostring
+    for (int i = 0; i < elems; i++) {
+        lua_pushvalue(L, -1); // args... tostring tostring
+        lua_pushvalue(L, i); // args... tostring tostring args[i]
+        lua_call(L, 1, 1); // args... tostring str
+        const char *s = lua_tostring(L, -1);
+        if (s == NULL)
+            return luaL_error(L, "Invalid argument");
+        mp_msg_log(ctx->log, msgl, "%s%s", s, i > 0 ? " " : "");
+        lua_pop(L, 1);  // args... tostring
+    }
+    mp_msg_log(ctx->log, msgl, "\n");
+
+    return 0;
 }
 
 static int find_config_file(lua_State *L)
@@ -548,6 +592,9 @@ static int input_set_section_mouse_area(lua_State *L)
 static void add_functions(struct script_ctx *ctx)
 {
     lua_State *L = ctx->state;
+
+    lua_pushcfunction(L, script_log);
+    lua_setfield(L, -2, "log");
 
     lua_pushcfunction(L, find_config_file);
     lua_setfield(L, -2, "find_config_file");

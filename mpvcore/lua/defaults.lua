@@ -78,6 +78,18 @@ function mp_script_dispatch(id, event)
     end
 end
 
-package.loaded["mp"] = {mp = mp}
+mp.msg = {
+    fatal = function(...) return mp.log("fatal", ...) end,
+    error = function(...) return mp.log("error", ...) end,
+    warn = function(...) return mp.log("warn", ...) end,
+    info = function(...) return mp.log("info", ...) end,
+    verbose = function(...) return mp.log("verbose", ...) end,
+    debug = function(...) return mp.log("debug", ...) end,
+}
+
+_G.print = mp.msg.info
+
+package.loaded["mp"] = mp
+package.loaded["mp.msg"] = mp.msg
 
 return {}
