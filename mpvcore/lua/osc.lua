@@ -113,8 +113,8 @@ end
 -- identifier:  A simple indentifier for the config file. Make sure this doesn't collide with other scripts.
 
 -- How does it work:
--- Existence of the configfile will be checked, if it doesn't exists, the default values from the options table will be written in a new
--- file, commented out. If it exits, the key/value pairs will be read, and values of keys that exist in the options table, will overwrite
+-- Existance of the configfile will be checked, if it doesn't exist, the default values from the options table will be written in a new
+-- file, commented out. If it exits, the key/value pairs will be read, and values of keys that exist in the options table will overwrite
 -- their value. Keys that don't exist in the options table will be ignored, keys that don't exits in the config will keep their default
 -- value. The value's types will automatically be converted to the type used in the options table.
 function read_config(options, identifier)
