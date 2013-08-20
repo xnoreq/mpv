@@ -339,15 +339,6 @@ static void mkdir_cb(const char *path, const struct bstr *rest) {
     mkdir(path, 0777);
 }
 
-static void debug_cb(const char *path, const struct bstr *rest) {
-    if (rest[0].start == NULL) {
-        mp_msg(MSGT_GLOBAL, MSGL_ERR, "Join: '%s'\n", path);
-    } else {
-        mp_msg(MSGT_GLOBAL, MSGL_WARN, "Join: '%s', first of rest: '%.*s'\n",
-               path, BSTR_P(rest[0]));
-    }
-}
-
 #define mp_path_join_cb(talloc_ctx, cb, ...) \
     mp_path_join_cb_array((talloc_ctx), (cb), (const struct bstr[]){__VA_ARGS__, bstr0(NULL)})
 static inline char *mp_path_join_cb_array(
@@ -414,7 +405,7 @@ static inline char *mp_path_join_cb_array(
 // path[] is (and needs to be) bstr0(NULL)-terminated.
 char *mp_path_join_array(const void *talloc_ctx, const struct bstr path[])
 {
-    return mp_path_join_cb_array(talloc_ctx, debug_cb, path);
+    return mp_path_join_cb_array(talloc_ctx, NULL, path);
 }
 
 char *mp_path_mkdirs_array(const void *talloc_ctx, const struct bstr path[])
