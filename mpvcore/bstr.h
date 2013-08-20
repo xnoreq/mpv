@@ -35,19 +35,19 @@ typedef struct bstr {
 } bstr;
 
 // If str.start is NULL, return NULL.
-static inline char *bstrdup0(void *talloc_ctx, struct bstr str)
+static inline char *bstrdup0(const void *talloc_ctx, struct bstr str)
 {
     return talloc_strndup(talloc_ctx, (char *)str.start, str.len);
 }
 
 // Like bstrdup0(), but always return a valid C-string.
-static inline char *bstrto0(void *talloc_ctx, struct bstr str)
+static inline char *bstrto0(const void *talloc_ctx, struct bstr str)
 {
     return str.start ? bstrdup0(talloc_ctx, str) : talloc_strdup(talloc_ctx, "");
 }
 
 // Return start = NULL iff that is true for the original.
-static inline struct bstr bstrdup(void *talloc_ctx, struct bstr str)
+static inline struct bstr bstrdup(const void *talloc_ctx, struct bstr str)
 {
     struct bstr r = { NULL, str.len };
     if (str.start)
@@ -68,7 +68,7 @@ int bstrspn(struct bstr str, const char *accept);
 int bstrcspn(struct bstr str, const char *reject);
 
 int bstr_find(struct bstr haystack, struct bstr needle);
-struct bstr *bstr_splitlines(void *talloc_ctx, struct bstr str);
+struct bstr *bstr_splitlines(const void *talloc_ctx, struct bstr str);
 struct bstr bstr_lstrip(struct bstr str);
 struct bstr bstr_strip(struct bstr str);
 struct bstr bstr_split(struct bstr str, const char *sep, struct bstr *rest);
@@ -107,7 +107,7 @@ int bstr_validate_utf8(struct bstr s);
 // If replacement happens, a newly allocated string is returned (with a \0
 // byte added past its end for convenience). The string is allocated via
 // talloc, with talloc_ctx as parent.
-struct bstr bstr_sanitize_utf8_latin1(void *talloc_ctx, struct bstr s);
+struct bstr bstr_sanitize_utf8_latin1(const void *talloc_ctx, struct bstr s);
 
 // Return the text before the next line break, and return it. Change *rest to
 // point to the text following this line break. (rest can be NULL.)

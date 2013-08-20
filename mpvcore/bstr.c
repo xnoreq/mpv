@@ -186,7 +186,7 @@ double bstrtod(struct bstr str, struct bstr *rest)
     return r;
 }
 
-struct bstr *bstr_splitlines(void *talloc_ctx, struct bstr str)
+struct bstr *bstr_splitlines(const void *talloc_ctx, struct bstr str)
 {
     if (str.len == 0)
         return NULL;
@@ -325,7 +325,7 @@ static void append_bstr(bstr *buf, bstr s)
     buf->len += s.len;
 }
 
-struct bstr bstr_sanitize_utf8_latin1(void *talloc_ctx, struct bstr s)
+struct bstr bstr_sanitize_utf8_latin1(const void *talloc_ctx, struct bstr s)
 {
     bstr new = {0};
     bstr left = s;
