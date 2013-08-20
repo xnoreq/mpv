@@ -745,12 +745,12 @@ static void load_per_output_config(m_config_t *conf, char *cfg, char *out)
  * Tries to load a config file (in file local mode)
  * @return 0 if file was not found, 1 otherwise
  */
-static int try_load_config(m_config_t *conf, const char *file)
+static int try_load_config(m_config_t *conf, const char *file, bool local)
 {
     if (!mp_path_exists(file))
         return 0;
     mp_tmsg(MSGT_CPLAYER, MSGL_INFO, "Loading config '%s'\n", file);
-    m_config_parse_config_file(conf, file, M_SETOPT_BACKUP);
+    m_config_parse_config_file(conf, file, local ? M_SETOPT_BACKUP : 0);
     return 1;
 }
 
@@ -773,14 +773,14 @@ static void load_per_file_config(m_config_t *conf, const char * const file,
         char dircfg[MP_PATH_MAX];
         strcpy(dircfg, cfg);
         strcpy(dircfg + (name - cfg), "mpv.conf");
-        try_load_config(conf, dircfg);
+        try_load_config(conf, dircfg, true);
 
-        if (try_load_config(conf, cfg))
+        if (try_load_config(conf, cfg, true))
             return;
     }
 
     if ((confpath = mp_find_user_config_file(name)) != NULL) {
-        try_load_config(conf, confpath);
+        try_load_config(conf, confpath, true);
 
         talloc_free(confpath);
     }
@@ -895,7 +895,9 @@ static void load_playback_resume(m_config_t *conf, const char *file)
 {
     char *fname = get_playback_resume_config_filename(file);
     if (fname) {
-        try_load_config(conf, fname);
+        // Never apply the saved start position to following files
+        m_config_backup_opt(conf, "start");
+        try_load_config(conf, fname, false);
         unlink(fname);
     }
     talloc_free(fname);
@@ -3249,6 +3251,8 @@ char *chapter_name(struct MPContext *mpctx, int chapter)
 // returns the start of the chapter in seconds (-1 if unavailable)
 double chapter_start_time(struct MPContext *mpctx, int chapter)
 {
+    if (chapter == -1)
+        return get_start_time(mpctx);
     if (mpctx->chapters)
         return mpctx->chapters[chapter].start;
     if (mpctx->master_demuxer)
@@ -3272,13 +3276,16 @@ bool mp_seek_chapter(struct MPContext *mpctx, int chapter)
     int num = get_chapter_count(mpctx);
     if (num == 0)
         return false;
-    if (chapter < 0 || chapter >= num)
+    if (chapter < -1 || chapter >= num)
         return false;
 
     mpctx->last_chapter_seek = -2;
 
     double pts;
-    if (mpctx->chapters) {
+    if (chapter == -1) {
+        pts = get_start_time(mpctx);
+        goto do_seek;
+    } else if (mpctx->chapters) {
         pts = mpctx->chapters[chapter].start;
         goto do_seek;
     } else if (mpctx->master_demuxer) {

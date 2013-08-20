@@ -1,6 +1,7 @@
 -- osc.lua
 
 local assdraw = require 'mp.assdraw'
+local msg = require 'mp.msg'
 
 --
 -- Parameters
@@ -93,14 +94,14 @@ function typeconv(desttypeval, val)
         elseif val == "no" then
             val = false
         else
-            print("\n Error: Can't convert " .. val .." to boolean!")
+            msg.error("Error: Can't convert " .. val .." to boolean!")
             val = nil
         end
     elseif type(desttypeval) == "number" then
         if not (tonumber(val) == nil) then
             val = tonumber(val)
         else
-            print("\n Error: Can't convert " .. val .." to number!")
+            msg.error("Error: Can't convert " .. val .." to number!")
             val = nil
         end
     end
@@ -123,7 +124,7 @@ function read_config(options, identifier)
     local conffile = mp.find_config_file(conffilename)
     local f = io.open(conffile,"r")
     if f == nil then
-        print("\n"..conffile.." does not exist, creating it ...\n")
+        msg.warn(conffile.." does not exist, creating it ...")
         -- so create it, write default options
         local f = io.open(conffile,"w+")
         f:write("# Config file for "..identifier.."\n# <-- works only at beginning of line.\n# Do not have any spare spaces flying around.\n\n")
@@ -151,11 +152,11 @@ function read_config(options, identifier)
 
                     -- match found values with defaults
                     if options[key] == nil then
-                        print("\n"..conffilename..":"..linecounter.." unknown key " .. key .. ", ignoring")
+                        msg.warn(conffilename..":"..linecounter.." unknown key " .. key .. ", ignoring")
                     else
                         local convval = typeconv(options[key], val)
                         if convval == nil then
-                            print("\n"..conffilename..":"..linecounter.." error converting value '" .. val .. "' for key '" .. key .. "'")
+                            msg.error(conffilename..":"..linecounter.." error converting value '" .. val .. "' for key '" .. key .. "'")
                         else
                             options[key] = convval
                         end
