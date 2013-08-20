@@ -19,12 +19,16 @@
 #import <Foundation/Foundation.h>
 #include "osdep/macosx_bundle.h"
 #include "mpvcore/path.h"
+#include "talloc.h"
 
-char *get_bundled_path(const char *file)
+char *get_bundled_path(const char *path[])
 {
   NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
   NSString *path = [[NSBundle mainBundle] resourcePath];
-  char *rv =  mp_path_join(NULL, bstr0([path UTF8String]), bstr0(file));
+
+  void *tmp = talloc_new(NULL);
+  char *rv = mp_path_join_array(NULL, mp_prepend_and_bstr0(tmp, bstr0([path UTF8String]), path));
+  talloc_free(tmp);
   [pool release];
   return rv;
 }

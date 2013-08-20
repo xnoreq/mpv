@@ -28,16 +28,26 @@
 // Search for the input filename in several paths. These include user and global
 // config locations by default. Some platforms may implement additional platform
 // related lookups (i.e.: OSX inside an application bundle).
-char *mp_find_config_file(const char *filename);
+#define mp_find_config_file(...) \
+    mp_find_config_file_array((const char *[]){__VA_ARGS__, NULL})
+char *mp_find_config_file_array(const char *path[]);
 
 // Search for the input filename in the global configuration location.
-char *mp_find_global_config_file(const char *filename);
+char *mp_find_global_config_file_array(const char *path[]);
 
 // Search for the input filename in the user configuration location.
-char *mp_find_user_config_file(const char *filename);
+#define mp_find_user_config_file(...) \
+    mp_find_user_config_file_array((const char *[]){__VA_ARGS__, NULL})
+char *mp_find_user_config_file_array(const char *path[]);
 
 // Search for the input filename in the user cache location.
-char *mp_find_user_cache_file(const char *filename);
+#define mp_find_user_cache_file(...) \
+    mp_find_user_cache_file_array((const char *[]){__VA_ARGS__, NULL})
+char *mp_find_user_cache_file_array(const char *path[]);
+
+#define mp_find_user_runtime_file(...) \
+    mp_find_user_runtime_file_array((const char *[]){__VA_ARGS__, NULL})
+char *mp_find_user_runtime_file_array(const char *path[]);
 
 // Return pointer to filename part of path
 
@@ -55,15 +65,39 @@ char *mp_splitext(const char *path, bstr *root);
  */
 struct bstr mp_dirname(const char *path);
 
-/* Join two path components and return a newly allocated string
- * for the result. '/' is inserted between the components if needed.
- * If p2 is an absolute path then the value of p1 is ignored.
+/* Join path components and return a newly allocated string
+ * for the result. The system's path separator is inserted between
+ * the components if needed.
+ * If a path is absolute, the value of the previous paths are ignored.
  */
-char *mp_path_join(void *talloc_ctx, struct bstr p1, struct bstr p2);
+#define mp_path_join(talloc_ctx, ...) \
+    mp_path_join_array((talloc_ctx), (const struct bstr[]){__VA_ARGS__, bstr0(NULL)})
+char *mp_path_join_array(const void *talloc_ctx, const struct bstr path[]);
 
-char *mp_getcwd(void *talloc_ctx);
+/* Generates a path in the same manner as mp_path_join, but calls mkdir
+ * with mode 0777 for each component in the path, except for the last (presumed to be a file).
+ * Returns the full generated path.
+ */
+#define mp_path_mkdirs(talloc_ctx, ...) \
+    mp_path_mkdirs_array((talloc_ctx), (const struct bstr[]){__VA_ARGS__, bstr0(NULL)})
+char *mp_path_mkdirs_array(const void *talloc_ctx, const struct bstr path[]);
+
+char *mp_getcwd(const void *talloc_ctx);
 
 bool mp_path_exists(const char *path);
 bool mp_path_isdir(const char *path);
+
+static inline struct bstr *mp_prepend_and_bstr0(const void *talloc_ctx, struct bstr prefix, const char *rest[])
+{
+    int count = 0;
+    for (; rest[count++] != NULL;) {} // just count
+
+    struct bstr *ret = talloc_array(talloc_ctx, struct bstr, count + 1);
+    ret[0] = prefix;
+    for (int i = 0; i < count; i++)
+        ret[1 + i] = bstr0(rest[i]);
+    ret[count] = bstr0(NULL);
+    return ret;
+}
 
 #endif /* MPLAYER_PATH_H */

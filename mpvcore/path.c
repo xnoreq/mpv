@@ -50,33 +50,33 @@
 #define SUPPORT_OLD_CONFIG 1
 #define ALWAYS_LOCAL_APPDATA 1
 
-typedef char *(*lookup_fun)(const char *);
+typedef char *(*lookup_fun)(const char *[]);
 static const lookup_fun config_lookup_functions[] = {
-    mp_find_user_config_file,
+    mp_find_user_config_file_array,
 #ifdef CONFIG_MACOSX_BUNDLE
     get_bundled_path,
 #endif
-    mp_find_global_config_file,
+    mp_find_global_config_file_array,
     NULL
 };
 
-char *mp_find_config_file(const char *filename)
+char *mp_find_config_file_array(const char *path[])
 {
     for (int i = 0; config_lookup_functions[i] != NULL; i++) {
-        char *path = config_lookup_functions[i](filename);
-        if (!path) continue;
+        char *p = config_lookup_functions[i](path);
+        if (!p) continue;
 
-        if (mp_path_exists(path))
-            return path;
+        if (mp_path_exists(p))
+            return p;
 
-        talloc_free(path);
+        talloc_free(p);
     }
     return NULL;
 }
 
-typedef enum {Config, Cache} config_type;
+typedef enum {Config = 0, Cache, Runtime, config_type_count} config_type;
 
-static inline char *mpv_home(void *talloc_ctx, const config_type type) {
+static inline char *mpv_home(const void *talloc_ctx, const config_type type) {
     char *mpvhome = getenv("MPV_HOME");
     if (mpvhome)
         switch (type) {
@@ -86,13 +86,30 @@ static inline char *mpv_home(void *talloc_ctx, const config_type type) {
         case Cache:
             return mp_path_join(talloc_ctx, bstr0(mpvhome), bstr0("cache"));
             break;
+        case Runtime:
+            return NULL;
+            break;
         }
 
     return NULL;
 }
 
+static inline bool is_absolute(const struct bstr p) {
+    if (p.len < 1)
+        return false;
+
+#if HAVE_DOS_PATHS
+    // NOTE: X: without a / or \ is a *relative* path
+    if (p.len > 2 && p.start[1] == ':')
+        return p.start[2] == '\\' || p.start[2] == '/';
+    return p.start[0] == '\\' || p.start[0] == '/';
+#else
+    return p.start[0] == '/';
+#endif
+}
+
 #if !defined(_WIN32) || defined(__CYGWIN__)
-static inline struct bstr find_config_dir(void *talloc_ctx, const config_type type) {
+static inline struct bstr find_config_dir(const void *talloc_ctx, const config_type type) {
     char *confdir = mpv_home(talloc_ctx, type);
     if (confdir)
         return bstr0(confdir);
@@ -100,44 +117,56 @@ static inline struct bstr find_config_dir(void *talloc_ctx, const config_type ty
     char *homedir = getenv("HOME");
 
     const char *xdg_env =
-        type == Config ? "XDG_CONFIG_HOME" :
-        type == Cache  ? "XDG_CACHE_HOME"  : NULL;
+        type == Config  ? "XDG_CONFIG_HOME" :
+        type == Cache   ? "XDG_CACHE_HOME"  :
+        type == Runtime ? "XDG_RUNTIME_DIR" : NULL;
 
     /* first, we discover the new config dir's path */
     char *tmp = talloc_new(NULL);
     struct bstr ret = bstr0(NULL);
 
     /* spec requires that the paths on XDG_* envvars are absolute or ignored */
-    if ((confdir = getenv(xdg_env)) != NULL && confdir[0] == '/') {
-        mkdir(confdir, 0777);
-        confdir = mp_path_join(tmp, bstr0(confdir), bstr0("mpv"));
+    if ((confdir = getenv(xdg_env)) != NULL && is_absolute(bstr0(confdir))) {
+        if (type == Runtime)
+            mkdir(confdir, 0700);
+        else
+            mkdir(confdir, 0777);
+
+        confdir = mp_path_mkdirs(tmp, bstr0(confdir), bstr0("mpv"), bstr0(""));
+    } else if (type == Runtime) {
+        uid_t uid = getuid();
+
+        const char *run = "/tmp";
+        if (mp_path_isdir("/run"))
+            run = "/run";
+        else if (mp_path_isdir("/var/run"))
+            run = "/var/run";
+
+        confdir = talloc_asprintf(tmp, "%s/mpv-%d", run, uid);
+        mkdir(confdir, 0700);
     } else {
         if (homedir == NULL)
             goto exit;
-        switch (type) {
-        case Config:
-            confdir = mp_path_join(tmp, bstr0(homedir), bstr0(".config"));
-            break;
-        case Cache:
-            confdir = mp_path_join(tmp, bstr0(homedir), bstr0(".cache"));
-            break;
-        }
-        mkdir(confdir, 0777);
-        confdir = mp_path_join(tmp, bstr0(confdir), bstr0("mpv"));
+        const char *dir =
+            type == Config ? ".config" :
+            type == Cache  ? ".cache"  : NULL;
+        confdir = mp_path_mkdirs(tmp, bstr0(homedir), bstr0(dir), bstr0("mpv"), bstr0(""));
     }
 
 #if SUPPORT_OLD_CONFIG
     /* check for the old config dir -- we only accept it if it's a real dir */
-    char *olddir = mp_path_join(tmp, bstr0(homedir), bstr0(".mpv"));
-    struct stat st;
-    if (lstat(olddir, &st) == 0 && S_ISDIR(st.st_mode)) {
-        static int warned = 0;
-        if (!warned++)
-            mp_msg(MSGT_GLOBAL, MSGL_WARN,
-                   "The default config directory changed. "
-                   "Migrate to the new directory with: mv %s %s\n",
-                   olddir, confdir);
-        confdir = olddir;
+    if (type != Runtime) {
+        char *olddir = mp_path_join(tmp, bstr0(homedir), bstr0(".mpv"));
+        struct stat st;
+        if (lstat(olddir, &st) == 0 && S_ISDIR(st.st_mode)) {
+            static int warned = 0;
+            if (!warned++)
+                mp_msg(MSGT_GLOBAL, MSGL_WARN,
+                       "The default config directory changed. "
+                       "Migrate to the new directory with: mv %s %s\n",
+                       olddir, confdir);
+            confdir = olddir;
+        }
     }
 #endif
 
@@ -149,7 +178,7 @@ exit:
 
 #else /* windows version */
 
-static inline struct bstr find_config_dir(void *talloc_ctx, config_type type) {
+static inline struct bstr find_config_dir(const void *talloc_ctx, const config_type type) {
     char *confdir = mpv_home(talloc_ctx, type);
     if (confdir)
         return bstr0(confdir);
@@ -167,7 +196,7 @@ static inline struct bstr find_config_dir(void *talloc_ctx, config_type type) {
     if (!(ALWAYS_LOCAL_APPDATA && type == Cache) &&
         mp_path_exists(confdir) && mp_path_isdir(confdir)) {
         if (type == Cache) {
-            confdir = mp_path_join(talloc_ctx, bstr0(confdir), bstr0("cache"));
+            confdir = mp_path_mkdirs(talloc_ctx, bstr0(confdir), bstr0("cache"), bstr0(""));
         } else {
             confdir = talloc_strdup(talloc_ctx, confdir);
         }
@@ -184,7 +213,7 @@ static inline struct bstr find_config_dir(void *talloc_ctx, config_type type) {
                                        appdata))) {
             char *u8appdata = mp_to_utf8(tmp, appdata);
 
-            confdir = mp_path_join(talloc_ctx, bstr0(u8appdata), bstr0("mpv"));
+            confdir = mp_path_mkdirs(talloc_ctx, bstr0(u8appdata), bstr0("mpv"), bstr0(""));
         } else {
             confdir = NULL;
         }
@@ -195,48 +224,61 @@ static inline struct bstr find_config_dir(void *talloc_ctx, config_type type) {
 
 #endif
 
-char *mp_find_user_config_file(const char *filename)
-{
-    static struct bstr config_dir = {0};
-    if (config_dir.len == 0)
-        config_dir = find_config_dir(NULL, Config);
-
-    char *buf = NULL;
-    if (filename) {
-        buf = mp_path_join(NULL, config_dir, bstr0(filename));
-    } else {
-        buf = bstrto0(NULL, config_dir);
+static inline char *find_user_file(const config_type type, const char *path[]) {
+    static void *config_dir_ctx = NULL;
+    if (config_dir_ctx == NULL) {
+        config_dir_ctx = talloc_new(NULL);
+        talloc_set_name_const(config_dir_ctx, "Config dirs");
     }
 
-    mp_msg(MSGT_GLOBAL, MSGL_V, "mp_find_user_config_file('%s') -> '%s'\n", filename, buf);
+    static struct bstr config_dirs[config_type_count] = {{0,0}};
+    if (config_dirs[type].len == 0)
+        config_dirs[type] = find_config_dir(config_dir_ctx, type);
+
+    void *tmp = talloc_new(NULL);
+
+    char *msg = talloc_asprintf(tmp, "find_user_file(%d", type);
+    for (int i = 0; path[i] != NULL; i++)
+        msg = talloc_asprintf(msg, "%s, '%s'", msg, path[i]);
+
+    struct bstr *paths = mp_prepend_and_bstr0(tmp, config_dirs[type], path);
+
+    char *buf = NULL;
+    if (type == Runtime)
+        buf = mp_path_join_array(config_dir_ctx, paths);
+    else
+        buf = mp_path_mkdirs_array(config_dir_ctx, paths);
+
+    msg = talloc_asprintf(msg, "%s, NULL) -> '%s'", msg, buf);
+    mp_msg(MSGT_GLOBAL, MSGL_WARN, "%s\n", msg);
+
+    talloc_free(tmp);
     return buf;
 }
 
-
-char *mp_find_user_cache_file(const char *filename)
+char *mp_find_user_config_file_array(const char *path[])
 {
-    static struct bstr cache_dir;
-    if (cache_dir.len == 0)
-        cache_dir = find_config_dir(NULL, Cache);
-
-    char *buf = NULL;
-    if (filename) {
-        buf = mp_path_join(NULL, cache_dir, bstr0(filename));
-    } else {
-        buf = bstrto0(NULL, cache_dir);
-    }
-
-    mp_msg(MSGT_GLOBAL, MSGL_V, "mp_find_user_cache_file('%s') -> '%s'\n", filename, buf);
-    return buf;
+    return find_user_file(Config, path);
 }
 
-char *mp_find_global_config_file(const char *filename)
+
+char *mp_find_user_cache_file_array(const char *path[])
 {
-    if (filename) {
-        return mp_path_join(NULL, bstr0(MPLAYER_CONFDIR), bstr0(filename));
-    } else {
-        return talloc_strdup(NULL, MPLAYER_CONFDIR);
-    }
+    return find_user_file(Cache, path);
+}
+
+char *mp_find_user_runtime_file_array(const char *path[])
+{
+    return find_user_file(Runtime, path);
+    exit(0);
+}
+
+char *mp_find_global_config_file_array(const char *path[])
+{
+    struct bstr *paths = mp_prepend_and_bstr0(NULL, bstr0(MPLAYER_CONFDIR), path);
+    char *ret = mp_path_join_array(NULL, paths);
+    talloc_free(paths);
+    return ret;
 }
 
 char *mp_basename(const char *path)
@@ -276,35 +318,111 @@ char *mp_splitext(const char *path, bstr *root)
     return (char *)split;
 }
 
-char *mp_path_join(void *talloc_ctx, struct bstr p1, struct bstr p2)
-{
-    if (p1.len == 0)
-        return bstrdup0(talloc_ctx, p2);
-    if (p2.len == 0)
-        return bstrdup0(talloc_ctx, p1);
+static inline bool ends_with_separator(const struct bstr p)  {
+    if (p.len < 1)
+        return false;
 
+    int endchar = p.start[p.len - 1];
 #if HAVE_DOS_PATHS
-    if (p2.len >= 2 && p2.start[1] == ':'
-        || p2.start[0] == '\\' || p2.start[0] == '/')
+    // "X:" is a relative path. We treat it as having a separator
+    // to avoid adding a \ to it, which would turn it into an absolute one.
+    return endchar == '/' || endchar == '\\' ||
+           p.len == 2 && endchar == ':';
 #else
-    if (p2.start[0] == '/')
+    return endchar == '/';
 #endif
-        return bstrdup0(talloc_ctx, p2);   // absolute path
-
-    bool have_separator;
-    int endchar1 = p1.start[p1.len - 1];
-#if HAVE_DOS_PATHS
-    have_separator = endchar1 == '/' || endchar1 == '\\'
-                     || p1.len == 2 && endchar1 == ':'; // "X:" only
-#else
-    have_separator = endchar1 == '/';
-#endif
-
-    return talloc_asprintf(talloc_ctx, "%.*s%s%.*s", BSTR_P(p1),
-                           have_separator ? "" : "/", BSTR_P(p2));
 }
 
-char *mp_getcwd(void *talloc_ctx)
+static void mkdir_cb(const char *path, const struct bstr *rest) {
+    if (rest[0].start == NULL) // this is the last component
+        return;
+    mkdir(path, 0777);
+}
+
+static void debug_cb(const char *path, const struct bstr *rest) {
+    if (rest[0].start == NULL) {
+        mp_msg(MSGT_GLOBAL, MSGL_ERR, "Join: '%s'\n", path);
+    } else {
+        mp_msg(MSGT_GLOBAL, MSGL_WARN, "Join: '%s', first of rest: '%.*s'\n",
+               path, BSTR_P(rest[0]));
+    }
+}
+
+#define mp_path_join_cb(talloc_ctx, cb, ...) \
+    mp_path_join_cb_array((talloc_ctx), (cb), (const struct bstr[]){__VA_ARGS__, bstr0(NULL)})
+static inline char *mp_path_join_cb_array(
+    const void *talloc_ctx, void (*cb)(const char* path, const struct bstr *rest), const struct bstr path[])
+{
+    if (path[0].start == NULL) {
+        char *ret = talloc_strdup(talloc_ctx, "");
+        if (cb) cb(ret, &path[0]);
+        return ret;
+    }
+    if (path[1].start == NULL) {
+        char *ret = bstrdup0(talloc_ctx, path[0]);
+        if (cb) cb(ret, &path[1]);
+        return ret;
+    }
+    if (path[2].start == NULL) {
+        if (is_absolute(path[1])) {
+            char *ret = bstrdup0(talloc_ctx, path[1]);
+            if (cb) cb(ret, &path[2]);
+            return ret;
+        }
+    }
+
+    char *tmp = talloc_new(NULL);
+
+    char *p = NULL;
+    for (int i = 0; path[i].start != NULL; i++) {
+        const struct bstr np = path[i];
+        if (is_absolute(np)) {
+            // discard the path accumulated so far
+            if (i > 0)
+                mp_msg(MSGT_GLOBAL, MSGL_WARN,
+                       "Joining path with absolute path: %.*s\n", BSTR_P(np));
+            talloc_free(p);
+            p = bstrdup0(tmp, np);
+        } else {
+#if HAVE_DOS_PATHS
+            if (i > 0 && np.len > 1 && np.start[1] == ':') {
+                mp_msg(MSGT_GLOBAL, MSGL_FATAL,
+                       "Joining path with drive-relative path: %.*s\n", BSTR_P(np));
+                abort();
+            }
+#endif
+
+            char *sep = "";
+            if (!ends_with_separator(bstr0(p)))
+#if HAVE_DOS_PATHS
+                sep = "\\";
+#else
+                sep = "/";
+#endif
+            p = talloc_asprintf(tmp, "%s%s%.*s",
+                                p, sep, BSTR_P(np));
+        }
+
+        if (cb) cb(p, &path[i+1]);
+    }
+
+    p = talloc_strdup(talloc_ctx, p);
+    talloc_free(tmp);
+    return p;
+}
+
+// path[] is (and needs to be) bstr0(NULL)-terminated.
+char *mp_path_join_array(const void *talloc_ctx, const struct bstr path[])
+{
+    return mp_path_join_cb_array(talloc_ctx, debug_cb, path);
+}
+
+char *mp_path_mkdirs_array(const void *talloc_ctx, const struct bstr path[])
+{
+    return mp_path_join_cb_array(talloc_ctx, mkdir_cb, path);
+}
+
+char *mp_getcwd(const void *talloc_ctx)
 {
     char *wd = talloc_array(talloc_ctx, char, 20);
     while (getcwd(wd, talloc_get_size(wd)) == NULL) {

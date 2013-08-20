@@ -624,23 +624,20 @@ static MP_NORETURN void exit_player(struct MPContext *mpctx,
 #endif
 }
 
-static void mk_config_dir(char *subdir)
+static void mk_config_dirs(void)
 {
     void *tmp = talloc_new(NULL);
-    char *confdir = talloc_steal(tmp, mp_find_user_config_file(""));
-    if (subdir)
-        confdir = mp_path_join(tmp, bstr0(confdir), bstr0(subdir));
-    mkdir(confdir, 0777);
-    talloc_free(tmp);
-}
 
-static void mk_cache_dir(char *subdir)
-{
-    void *tmp = talloc_new(NULL);
-    char *cachedir = talloc_steal(tmp, mp_find_user_cache_file(""));
-    if (subdir)
-        cachedir = mp_path_join(tmp, bstr0(cachedir), bstr0(subdir));
-    mkdir(cachedir, 0777);
+    char *(*find_func[])(const char *[]) = {
+        mp_find_user_config_file_array,
+        mp_find_user_cache_file_array,
+        mp_find_user_runtime_file_array,
+        NULL
+    };
+    for (int i = 0; find_func[i] != NULL; i++) {
+        char *confdir = talloc_steal(tmp, find_func[i]((const char*[]){"", NULL}));
+        mkdir(confdir, 0777);
+    }
     talloc_free(tmp);
 }
 
@@ -650,7 +647,6 @@ static int cfg_include(struct m_config *conf, char *filename, int flags)
 }
 
 #define DEF_CONFIG "# Write your default config options here!\n\n\n"
-#define MP_WATCH_LATER_CACHE "watch_later"
 
 static bool parse_cfgfiles(struct MPContext *mpctx, m_config_t *conf)
 {
@@ -661,9 +657,7 @@ static bool parse_cfgfiles(struct MPContext *mpctx, m_config_t *conf)
         return true;
     if (!m_config_parse_config_file(conf, MPLAYER_CONFDIR "/mpv.conf", 0) < 0)
         return false;
-    mk_config_dir(NULL);
-    mk_cache_dir(NULL);
-    mk_cache_dir(MP_WATCH_LATER_CACHE);
+    mk_config_dirs();
     if ((conffile = mp_find_user_config_file("config")) == NULL)
         mp_tmsg(MSGT_CPLAYER, MSGL_ERR,
                 "mp_find_user_config_file(\"config\") problem\n");
@@ -798,10 +792,10 @@ static bool might_be_an_url(bstr f)
     return bstr_find0(f, "://") >= 0;
 }
 
+#define MP_WATCH_LATER_DIR "watch_later"
+
 static char *get_playback_resume_config_filename(const char *fname)
 {
-    char *watch_later_dir = mp_find_user_cache_file(MP_WATCH_LATER_CACHE);
-
     char *res = NULL;
     void *tmp = talloc_new(NULL);
     const char *realpath = fname;
@@ -817,7 +811,7 @@ static char *get_playback_resume_config_filename(const char *fname)
     for (int i = 0; i < 16; i++)
         conf = talloc_asprintf_append(conf, "%02X", md5[i]);
 
-    res = mp_path_join(NULL, bstr0(watch_later_dir), bstr0(conf));
+    res = mp_find_user_cache_file(MP_WATCH_LATER_DIR, conf);
     talloc_free(conf);
 
 exit:
