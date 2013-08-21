@@ -322,7 +322,6 @@ const m_option_t mp_opts[] = {
 
     // handled in command line parser (parser-mpcmd.c)
     {"playlist", NULL, CONF_TYPE_STRING, CONF_NOCFG | M_OPT_MIN, 1, 0, NULL},
-    {"shuffle", NULL, CONF_TYPE_FLAG, CONF_NOCFG, 0, 0, NULL},
     {"{", NULL, CONF_TYPE_STORE, CONF_NOCFG, 0, 0, NULL},
     {"}", NULL, CONF_TYPE_STORE, CONF_NOCFG, 0, 0, NULL},
 
@@ -334,6 +333,8 @@ const m_option_t mp_opts[] = {
 
     // handled in mplayer.c (looks at the raw argv[])
     {"leak-report", "", CONF_TYPE_STORE, CONF_GLOBAL | CONF_NOCFG },
+
+    OPT_FLAG("shuffle", shuffle, CONF_GLOBAL | CONF_NOCFG),
 
 // ------------------------- common options --------------------
     OPT_FLAG("quiet", quiet, CONF_GLOBAL),
@@ -374,7 +375,8 @@ const m_option_t mp_opts[] = {
     {"dvdangle", &dvd_angle, CONF_TYPE_INT, CONF_RANGE, 1, 99, NULL},
 #endif /* CONFIG_DVDREAD */
     OPT_INTPAIR("chapter", chapterrange, 0),
-    OPT_INTRANGE("edition", edition_id, 0, -1, 8190),
+    OPT_CHOICE_OR_INT("edition", edition_id, 0, 0, 8190,
+                      ({"auto", -1})),
 #ifdef CONFIG_LIBBLURAY
     {"bluray-device",  &bluray_device,  CONF_TYPE_STRING, 0,          0,  0, NULL},
     {"bluray-angle",   &bluray_angle,   CONF_TYPE_INT,    CONF_RANGE, 0, 999, NULL},
@@ -585,7 +587,11 @@ const m_option_t mp_opts[] = {
     OPT_INTRANGE("fsmode-dontuse", vo.fsmode, 0, 31, 4096),
     OPT_FLAG("native-keyrepeat", vo.native_keyrepeat, 0),
     OPT_FLOATRANGE("panscan", vo.panscan, 0, 0.0, 1.0),
-    OPT_FLOATRANGE("panscanrange", vo.panscanrange, 0, -19.0, 99.0),
+    OPT_FLOATRANGE("video-zoom", vo.zoom, 0, -20.0, 20.0),
+    OPT_FLOATRANGE("video-pan-x", vo.pan_x, 0, -3.0, 3.0),
+    OPT_FLOATRANGE("video-pan-y", vo.pan_y, 0, -3.0, 3.0),
+    OPT_FLOATRANGE("video-align-x", vo.align_x, 0, -1.0, 1.0),
+    OPT_FLOATRANGE("video-align-y", vo.align_y, 0, -1.0, 1.0),
     OPT_FLAG("force-rgba-osd-rendering", force_rgba_osd, 0),
     OPT_CHOICE("colormatrix", requested_colorspace, 0,
                ({"auto", MP_CSP_AUTO},
@@ -751,7 +757,6 @@ const struct MPOpts mp_default_opts = {
         .video_driver_list = NULL,
         .cursor_autohide_delay = 1000,
         .monitor_pixel_aspect = 1.0,
-        .panscanrange = 1.0,
         .screen_id = -1,
         .fsscreen_id = -1,
         .nomouse_input = 0,

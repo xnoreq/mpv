@@ -19,7 +19,9 @@ typedef struct mp_vo_opts {
     int native_keyrepeat;
 
     float panscan;
-    float panscanrange;
+    float zoom;
+    float pan_x, pan_y;
+    float align_x, align_y;
 
     struct m_geometry geometry;
     struct m_geometry autofit;
@@ -83,6 +85,7 @@ typedef struct MPOpts {
     char *stream_capture;
     char *stream_dump;
     int loop_times;
+    int shuffle;
     int ordered_chapters;
     int chapter_merge_threshold;
     double chapter_seek_threshold;

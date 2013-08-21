@@ -935,7 +935,7 @@ static bool demux_was_interrupted(struct MPContext *mpctx)
 
 static int find_new_tid(struct MPContext *mpctx, enum stream_type t)
 {
-    int new_id = -1;
+    int new_id = 0;
     for (int i = 0; i < mpctx->num_tracks; i++) {
         struct track *track = mpctx->tracks[i];
         if (track->type == t)
@@ -1198,7 +1198,7 @@ static void print_status(struct MPContext *mpctx)
     {
         // VO stats
         if (sh_video && mpctx->drop_frame_cnt)
-            saddf(&line, " D: %d", mpctx->drop_frame_cnt);
+            saddf(&line, " Late: %d", mpctx->drop_frame_cnt);
     }
 
     int cache = mp_get_cache_percent(mpctx);
@@ -4504,6 +4504,8 @@ struct playlist_entry *mp_next_file(struct MPContext *mpctx, int direction)
     struct playlist_entry *next = playlist_get_next(mpctx->playlist, direction);
     if (!next && mpctx->opts->loop_times >= 0) {
         if (direction > 0) {
+            if (mpctx->opts->shuffle)
+                playlist_shuffle(mpctx->playlist);
             next = mpctx->playlist->first;
             if (next && mpctx->opts->loop_times > 0) {
                 mpctx->opts->loop_times--;
@@ -4771,6 +4773,8 @@ static int mpv_main(int argc, char *argv[])
     mp_lua_init(mpctx);
 #endif
 
+    if (opts->shuffle)
+        playlist_shuffle(mpctx->playlist);
     mpctx->playlist->current = mpctx->playlist->first;
 
     play_files(mpctx);
