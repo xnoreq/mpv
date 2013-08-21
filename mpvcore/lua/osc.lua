@@ -9,7 +9,7 @@ local msg = require 'mp.msg'
 
 local user_opts = {
     -- default user option values
-    -- do not touch, change them in luasettings_osc.conf
+    -- do not touch, change them in plugin_osc.conf
 
     scaleWindowed = 1,                      -- scaling of the controller when windowed
     scaleFullscreen = 1,                    -- scaling of the controller when fullscreen
@@ -120,7 +120,7 @@ end
 -- value. The value's types will automatically be converted to the type used in the options table.
 function read_config(options, identifier)
 
-    local conffilename = "luasettings_" .. identifier .. ".conf"
+    local conffilename = "plugin_" .. identifier .. ".conf"
     local conffile = mp.find_config_file(conffilename)
     local f = io.open(conffile,"r")
     if f == nil then
