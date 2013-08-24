@@ -37,6 +37,7 @@
 
 #include "config.h"
 
+#include "mpvcore/mp_common.h"
 #include "mpvcore/bstr.h"
 #include "mpvcore/mp_msg.h"
 #include "osdep/timer.h"
@@ -249,6 +250,9 @@ static stream_t *open_stream_plugin(const stream_info_t *sinfo,
     if (s->seek && !(s->flags & MP_STREAM_SEEK))
         s->flags |= MP_STREAM_SEEK;
 
+    if (s->flags & MP_STREAM_FAST_SKIPPING)
+        s->flags |= MP_STREAM_SEEK_FW;
+
     s->mode = mode;
 
     s->uncached_type = s->type;
@@ -418,13 +422,21 @@ eof_out:
     return len;
 }
 
-int stream_fill_buffer(stream_t *s)
+static int stream_fill_buffer_by(stream_t *s, int64_t len)
 {
-    int len = s->sector_size ? s->sector_size : STREAM_BUFFER_SIZE;
+    len = MPMIN(len, s->read_chunk);
+    len = MPMAX(len, STREAM_BUFFER_SIZE);
+    if (s->sector_size)
+        len = s->sector_size;
     len = stream_read_unbuffered(s, s->buffer, len);
     s->buf_pos = 0;
     s->buf_len = len;
     return s->buf_len;
+}
+
+int stream_fill_buffer(stream_t *s)
+{
+    return stream_fill_buffer_by(s, STREAM_BUFFER_SIZE);
 }
 
 // Read between 1..buf_size bytes of data, return how much data has been read.
@@ -512,6 +524,23 @@ int stream_write_buffer(stream_t *s, unsigned char *buf, int len)
     return rd;
 }
 
+static int stream_skip_read(struct stream *s, int64_t len)
+{
+    while (len > 0) {
+        int x = s->buf_len - s->buf_pos;
+        if (x == 0) {
+            if (!stream_fill_buffer_by(s, len))
+                return 0; // EOF
+            x = s->buf_len - s->buf_pos;
+        }
+        if (x > len)
+            x = len;
+        s->buf_pos += x;
+        len -= x;
+    }
+    return 1;
+}
+
 // Seek function bypassing the local stream buffer.
 static int stream_seek_unbuffered(stream_t *s, int64_t newpos)
 {
@@ -530,6 +559,7 @@ static int stream_seek_unbuffered(stream_t *s, int64_t newpos)
             return 0;
         }
     }
+    s->pos = newpos;
     s->eof = 0; // EOF reset when seek succeeds.
     return -1;
 }
@@ -538,7 +568,6 @@ static int stream_seek_unbuffered(stream_t *s, int64_t newpos)
 // Unlike stream_seek_unbuffered(), it still fills the local buffer.
 static int stream_seek_long(stream_t *s, int64_t pos)
 {
-    int64_t oldpos = s->pos;
     s->buf_pos = s->buf_len = 0;
     s->eof = 0;
 
@@ -552,30 +581,18 @@ static int stream_seek_long(stream_t *s, int64_t pos)
     if (s->sector_size)
         newpos = (pos / s->sector_size) * s->sector_size;
 
-    mp_msg(MSGT_STREAM, MSGL_DBG3, "s->pos=%" PRIX64 "  newpos=%" PRIX64
-           "  new_bufpos=%" PRIX64 "  buflen=%X  \n",
-           (int64_t)s->pos, (int64_t)newpos, (int64_t)pos, s->buf_len);
+    mp_msg(MSGT_STREAM, MSGL_DBG3, "Seek from %" PRId64 " to %" PRId64
+           " (with offset %d)\n", s->pos, pos, (int)(pos - newpos));
 
-    pos -= newpos;
-
-    if (stream_seek_unbuffered(s, newpos) >= 0) {
-        s->pos = oldpos;
+    if (!s->seek && (s->flags & MP_STREAM_FAST_SKIPPING) && pos >= s->pos) {
+        // skipping is handled by generic code below
+    } else if (stream_seek_unbuffered(s, newpos) >= 0) {
         return 0;
     }
 
-    while (s->pos < newpos) {
-        if (stream_fill_buffer(s) <= 0)
-            break; // EOF
-    }
+    if (pos >= s->pos && stream_skip_read(s, pos - s->pos) > 0)
+        return 1; // success
 
-    while (stream_fill_buffer(s) > 0) {
-        if (pos <= s->buf_len) {
-            s->buf_pos = pos; // byte position in sector
-            s->eof = 0;
-            return 1;
-        }
-        pos -= s->buf_len;
-    }
     // Fill failed, but seek still is a success (partially).
     s->buf_pos = 0;
     s->buf_len = 0;
@@ -624,19 +641,7 @@ int stream_skip(stream_t *s, int64_t len)
         }
         return r;
     }
-    while (len > 0) {
-        int x = s->buf_len - s->buf_pos;
-        if (x == 0) {
-            if (!stream_fill_buffer(s))
-                return 0; // EOF
-            x = s->buf_len - s->buf_pos;
-        }
-        if (x > len)
-            x = len;
-        s->buf_pos += x;
-        len -= x;
-    }
-    return 1;
+    return stream_skip_read(s, len);
 }
 
 int stream_control(stream_t *s, int cmd, void *arg)
