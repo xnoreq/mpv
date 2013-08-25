@@ -763,16 +763,7 @@ function osc_init()
 
     --prev
     local eventresponder = {}
-    eventresponder.mouse_btn0_up = function ()
-        local chaplist = mp.get_chapter_list()
-        local chapter = tonumber(mp.property_get("chapter")) + 1
-        if (tonumber(chaplist[chapter].time) + 3) < tonumber(mp.property_get("time-pos")) then
-            mp.send_command("osd-msg set chapter ${=chapter}")
-        else
-            mp.send_command("osd-msg add chapter -1")
-        end
-
-    end
+    eventresponder.mouse_btn0_up = function () mp.send_command("osd-msg add chapter -1") end
     eventresponder["shift+mouse_btn0_up"] = function () show_message(mp.property_get("chapter-list"), 3) end
     register_button(posX - (bigbuttondistance * 2), bigbuttonrowY, 5, 40, 40, osc_styles.bigButtons, "\238\132\132", eventresponder, metainfo)
 
