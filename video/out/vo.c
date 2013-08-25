@@ -62,6 +62,7 @@ extern struct vo_driver video_out_direct3d_shaders;
 extern struct vo_driver video_out_sdl;
 extern struct vo_driver video_out_corevideo;
 extern struct vo_driver video_out_vaapi;
+extern struct vo_driver video_out_wayland;
 
 const struct vo_driver *video_out_drivers[] =
 {
@@ -104,6 +105,9 @@ const struct vo_driver *video_out_drivers[] =
 #endif
 #ifdef CONFIG_GL
         &video_out_opengl_hq,
+#endif
+#ifdef CONFIG_WAYLAND
+        &video_out_wayland,
 #endif
         NULL
 };
@@ -404,8 +408,6 @@ int vo_reconfig(struct vo *vo, struct mp_image_params *params, int flags)
     vo->dheight = d_height;
 
     struct mp_image_params p2 = *params;
-    p2.d_w = vo->aspdat.prew;
-    p2.d_h = vo->aspdat.preh;
 
     int ret;
     if (vo->driver->reconfig) {
@@ -432,6 +434,7 @@ int vo_reconfig(struct vo *vo, struct mp_image_params *params, int flags)
         struct mp_csp_details csp;
         if (vo_control(vo, VOCTRL_GET_YUV_COLORSPACE, &csp) > 0) {
             csp.levels_in = params->colorlevels;
+            csp.levels_out = params->outputlevels;
             csp.format = params->colorspace;
             vo_control(vo, VOCTRL_SET_YUV_COLORSPACE, &csp);
         }

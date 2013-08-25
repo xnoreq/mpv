@@ -317,7 +317,7 @@ Optional features:
   --disable-bluray       disable Blu-ray support [autodetect]
   --disable-dvdread      disable libdvdread [autodetect]
   --disable-enca         disable ENCA charset oracle library [autodetect]
-  --enable-macosx-bundle enable Mac OS X bundle file locations [autodetect]
+  --enable-macosx-bundle enable Mac OS X bundle file locations [disabled]
   --disable-pthreads     disable Posix threads support [autodetect]
   --disable-libass       disable subtitle rendering with libass [autodetect]
   --disable-libass-osd   disable OSD rendering with libass [autodetect]
@@ -480,7 +480,7 @@ _cdda=auto
 _coreaudio=auto
 _corevideo=auto
 _cocoa=auto
-_macosx_bundle=auto
+_macosx_bundle=no
 _enca=auto
 _pthreads=auto
 _ass=auto
@@ -722,7 +722,6 @@ for ac_option do
   --enable-cocoa) _cocoa=yes ;;
   --disable-cocoa) _cocoa=no ;;
   --enable-macosx-bundle) _macosx_bundle=yes ;;
-  --disable-macosx-bundle) _macosx_bundle=no ;;
 
   --enable-manpage) _build_man=yes ;;
   --disable-manpage) _build_man=no ;;
@@ -1563,11 +1562,11 @@ echores "$_sys_sysinfo"
 if darwin; then
 
 echocheck "Mac OS X Bundle file locations"
-def_macosx_bundle='#undef CONFIG_MACOSX_BUNDLE'
-test "$_macosx_bundle" = auto
 if test "$_macosx_bundle" = yes ; then
   extra_ldflags="$extra_ldflags -headerpad_max_install_names"
   def_macosx_bundle='#define CONFIG_MACOSX_BUNDLE 1'
+else
+  def_macosx_bundle='#undef CONFIG_MACOSX_BUNDLE'
 fi
 echores "$_macosx_bundle"
 
@@ -1712,10 +1711,15 @@ if test "$_wayland" != no; then
  _wayland="no"
   pkg_config_add "wayland-client >= 1.0.0 wayland-egl >= 9.0.0 wayland-cursor >= 1.0.0 xkbcommon >= 0.3.0" \
   && _wayland="yes"
+fi
+if test "$_wayland" = yes; then
   res_comment=""
+  def_wayland='#define CONFIG_WAYLAND'
+  vomodules="wayland $vomodules"
 else
-  _wayland="no"
+  def_wayland='#undef CONFIG_WAYLAND'
   res_comment=""
+  novomodules="wayland $novomodules"
 fi
 echores "$_wayland"
 
@@ -2823,6 +2827,7 @@ else
 fi
 echores "$libpostproc"
 
+def_vda='#define CONFIG_VDA 0'
 
 if darwin ; then
 
