@@ -1709,7 +1709,7 @@ fi #if darwin
 echocheck "Wayland"
 if test "$_wayland" != no; then
  _wayland="no"
-  pkg_config_add "wayland-client >= 1.0.0 wayland-egl >= 9.0.0 wayland-cursor >= 1.0.0 xkbcommon >= 0.3.0" \
+  pkg_config_add "wayland-client >= 1.0.0 wayland-cursor >= 1.0.0 xkbcommon >= 0.3.0" \
   && _wayland="yes"
 fi
 if test "$_wayland" = yes; then
@@ -2050,7 +2050,8 @@ EOF
       fi
     done
   fi
-  if test "$_wayland" = yes && cc_check -DGL_WAYLAND -lGL -lEGL ; then
+  if test "$_wayland" = yes && cc_check -DGL_WAYLAND -lGL -lEGL &&
+      pkg_config_add "wayland-egl >= 9.0.0"; then
     _gl=yes
     _gl_wayland=yes
     libs_mplayer="$libs_mplayer -lGL -lEGL"
@@ -2836,7 +2837,8 @@ if test "$_vda" = auto ; then
  _vda=no
  if test "$_avutil_has_refcounting" = "yes" ; then
    header_check VideoDecodeAcceleration/VDADecoder.h &&
-     header_check libavcodec/vda.h && _vda=yes
+   statement_check libavcodec/vda.h 'ff_vda_create_decoder(NULL, NULL, NULL)' &&
+   _vda=yes
  else
    res_comment="libavutil too old"
  fi
