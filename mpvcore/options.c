@@ -674,6 +674,8 @@ const m_option_t mp_opts[] = {
 
     OPT_DOUBLE("chapter-seek-threshold", chapter_seek_threshold, 0),
 
+    OPT_FLAG("load-unsafe-playlists", load_unsafe_playlists, 0),
+
     // a-v sync stuff:
     OPT_FLAG("correct-pts", correct_pts, 0),
     OPT_CHOICE("pts-association-mode", user_pts_assoc_mode, 0,
@@ -807,7 +809,7 @@ const struct MPOpts mp_default_opts = {
     .sub_pos = 100,
     .sub_speed = 1.0,
     .audio_output_channels = MP_CHMAP_INIT_STEREO,
-    .audio_output_format = -1,  // AF_FORMAT_UNKNOWN
+    .audio_output_format = 0,  // AF_FORMAT_UNKNOWN
     .playback_speed = 1.,
     .movie_aspect = -1.,
     .field_dominance = -1,

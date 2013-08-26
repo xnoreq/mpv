@@ -173,8 +173,9 @@ SOURCES = talloc.c \
           demux/demux_lavf.c \
           demux/demux_mf.c \
           demux/demux_mkv.c \
-          demux/demux_subreader.c \
+          demux/demux_playlist.c \
           demux/demux_raw.c \
+          demux/demux_subreader.c \
           demux/ebml.c \
           demux/mf.c \
           mpvcore/asxparser.c \
@@ -209,6 +210,7 @@ SOURCES = talloc.c \
           osdep/numcores.c \
           osdep/timer.c \
           stream/cookies.c \
+          stream/rar.c \
           stream/stream.c \
           stream/stream_avdevice.c \
           stream/stream_file.c \
@@ -216,6 +218,7 @@ SOURCES = talloc.c \
           stream/stream_memory.c \
           stream/stream_mf.c \
           stream/stream_null.c \
+          stream/stream_rar.c \
           sub/dec_sub.c \
           sub/draw_bmp.c \
           sub/find_subfiles.c \

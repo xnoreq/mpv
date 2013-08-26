@@ -59,6 +59,7 @@ extern const demuxer_desc_t demuxer_desc_lavf;
 extern const demuxer_desc_t demuxer_desc_mng;
 extern const demuxer_desc_t demuxer_desc_libass;
 extern const demuxer_desc_t demuxer_desc_subreader;
+extern const demuxer_desc_t demuxer_desc_playlist;
 
 /* Please do not add any new demuxers here. If you want to implement a new
  * demuxer, add it to libavformat, except for wrappers around external
@@ -81,6 +82,7 @@ const demuxer_desc_t *const demuxer_list[] = {
 #ifdef CONFIG_MNG
     &demuxer_desc_mng,
 #endif
+    &demuxer_desc_playlist,
     // Pretty aggressive, so should be last.
     &demuxer_desc_subreader,
     /* Please do not add any new demuxers here. If you want to implement a new
@@ -309,6 +311,8 @@ static void free_sh_stream(struct sh_stream *sh)
 
 void free_demuxer(demuxer_t *demuxer)
 {
+    if (!demuxer)
+        return;
     if (demuxer->desc->close)
         demuxer->desc->close(demuxer);
     // free streams:
@@ -599,6 +603,10 @@ struct demuxer *demux_open(struct stream *stream, char *force_format,
             return NULL;
         }
     }
+
+    // Peek this much data to avoid that stream_read() run by some demuxers
+    // or stream filters will flush previous peeked data.
+    stream_peek(stream, STREAM_BUFFER_SIZE);
 
     // Test demuxers from first to last, one pass for each check_levels[] entry
     for (int pass = 0; check_levels[pass] != -1; pass++) {

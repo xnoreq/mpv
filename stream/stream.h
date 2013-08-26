@@ -57,12 +57,16 @@ enum streamtype {
 #define STREAM_READ  0
 #define STREAM_WRITE 1
 
+// flags for stream_open_ext (this includes STREAM_READ and STREAM_WRITE)
+#define STREAM_NO_FILTERS 2
+
 // stream->flags
 #define MP_STREAM_FAST_SKIPPING 1 // allow forward seeks by skipping
 #define MP_STREAM_SEEK_BW  2
 #define MP_STREAM_SEEK_FW  4
 #define MP_STREAM_SEEK  (MP_STREAM_SEEK_BW | MP_STREAM_SEEK_FW)
 
+#define STREAM_NO_MATCH -2
 #define STREAM_UNSUPPORTED -1
 #define STREAM_ERROR 0
 #define STREAM_OK    1
@@ -111,11 +115,12 @@ typedef struct stream_info_st {
     const char *name;
     // opts is set from ->opts
     int (*open)(struct stream *st, int mode);
-    const char *protocols[MAX_STREAM_PROTOCOLS];
+    const char **protocols;
     int priv_size;
     const void *priv_defaults;
     const struct m_option *options;
-    const char *url_options[][2];
+    const char **url_options;
+    bool stream_filter;
 } stream_info_t;
 
 typedef struct stream {
@@ -150,12 +155,14 @@ typedef struct stream {
     char *mime_type; // when HTTP streaming is used
     char *demuxer; // request demuxer to be used
     char *lavf_type; // name of expected demuxer type for lavf
+    bool safe_origin; // used for playlists that can be opened safely
     struct MPOpts *opts;
 
     FILE *capture_file;
     char *capture_filename;
 
-    struct stream *uncached_stream;
+    struct stream *uncached_stream; // underlying stream for cache wrapper
+    struct stream *source;
 
     // Includes additional padding in case sizes get rounded up by sector size.
     unsigned char buffer[];
@@ -208,6 +215,7 @@ inline static uint64_t stream_read_qword(stream_t *s)
 
 unsigned char *stream_read_line(stream_t *s, unsigned char *mem, int max,
                                 int utf16);
+int stream_skip_bom(struct stream *s);
 
 inline static int stream_eof(stream_t *s)
 {
@@ -232,6 +240,7 @@ struct bstr stream_read_complete(struct stream *s, void *talloc_ctx,
 int stream_control(stream_t *s, int cmd, void *arg);
 void stream_update_size(stream_t *s);
 void free_stream(stream_t *s);
+struct stream *stream_create(const char *url, int flags, struct MPOpts *options);
 struct stream *stream_open(const char *filename, struct MPOpts *options);
 stream_t *open_output_stream(const char *filename, struct MPOpts *options);
 stream_t *open_memory_stream(void *data, int len);
@@ -262,5 +271,6 @@ typedef struct {
 } stream_language_t;
 
 void mp_url_unescape_inplace(char *buf);
+char *mp_url_escape(void *talloc_ctx, const char *s, const char *ok);
 
 #endif /* MPLAYER_STREAM_H */
