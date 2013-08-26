@@ -236,6 +236,7 @@ static int init(struct ao *ao)
     struct pa_sample_spec ss;
     struct pa_channel_map map;
     pa_proplist *proplist = NULL;
+    pa_format_info *format = NULL;
     struct priv *priv = ao->priv;
     char *host = priv->cfg_host && priv->cfg_host[0] ? priv->cfg_host : NULL;
     char *sink = priv->cfg_sink && priv->cfg_sink[0] ? priv->cfg_sink : NULL;
@@ -310,14 +311,16 @@ static int init(struct ao *ao)
 
     if (!(proplist = pa_proplist_new())) {
         MP_ERR(ao, "Failed to allocate proplist\n");
-        goto unlock_and_fail;
-    }
     (void)pa_proplist_sets(proplist, PA_PROP_MEDIA_ROLE, "video");
 
-    if (!(priv->stream = pa_stream_new_with_proplist(priv->context,
-                                                     "audio stream", &ss,
-                                                     &map, proplist)))
+    format = pa_format_info_from_sample_spec(&ss, &map);
+    if (!format)
+        goto fail;
+
+    if (!(priv->stream = pa_stream_new_extended(priv->context, "audio stream",
+                                                &format, 1, proplist)))
         goto unlock_and_fail;
+    }
 
     pa_proplist_free(proplist);
     proplist = NULL;
@@ -353,6 +356,8 @@ unlock_and_fail:
         pa_threaded_mainloop_unlock(priv->mainloop);
 
 fail:
+    if (format)
+        pa_format_info_free(format);
     if (priv->context) {
         if (!(pa_context_errno(priv->context) == PA_ERR_CONNECTIONREFUSED
               && ao->probing))

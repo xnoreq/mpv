@@ -2277,7 +2277,7 @@ fi
 echocheck "pulse"
 if test "$_pulse" = auto ; then
   _pulse=no
-  if pkg_config_add 'libpulse >= 0.9' ; then
+  if pkg_config_add 'libpulse >= 1.0' ; then
       _pulse=yes
   fi
 fi
