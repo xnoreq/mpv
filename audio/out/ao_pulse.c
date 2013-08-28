@@ -232,7 +232,6 @@ static void uninit(struct ao *ao, bool cut_audio)
 
 static int init(struct ao *ao)
 {
-    struct pa_sample_spec ss;
     struct pa_channel_map map;
     pa_proplist *proplist = NULL;
     pa_format_info *format = NULL;
@@ -269,26 +268,30 @@ static int init(struct ao *ao)
     if (pa_context_get_state(priv->context) != PA_CONTEXT_READY)
         goto unlock_and_fail;
 
-    ss.channels = ao->channels.num;
-    ss.rate = ao->samplerate;
+    format = pa_format_info_new();
+    if (!format)
+        goto fail;
 
     ao->format = af_fmt_from_planar(ao->format);
 
-    const struct format_map *fmt_map = format_maps;
-    while (fmt_map->mp_format != ao->format) {
-        if (fmt_map->mp_format == AF_FORMAT_UNKNOWN) {
-            MP_VERBOSE(ao, "Unsupported format, using default\n");
-            fmt_map = format_maps;
-            break;
-        }
-        fmt_map++;
-    }
-    ao->format = fmt_map->mp_format;
-    ss.format = fmt_map->pa_format;
+    if (AF_FORMAT_IS_IEC61937(ao->format)) {
+        format->encoding = PA_ENCODING_AC3_IEC61937;
+        //ao->format = AF_FORMAT_S16_LE; // fallback
+    } else {
+        const struct format_map *fmt_map = format_maps;
 
-    if (!pa_sample_spec_valid(&ss)) {
-        MP_ERR(ao, "Invalid sample spec\n");
-        goto unlock_and_fail;
+        while (fmt_map->mp_format != ao->format) {
+            if (fmt_map->mp_format == AF_FORMAT_UNKNOWN) {
+                MP_VERBOSE(ao, "Unsupported format, using default\n");
+                fmt_map = format_maps;
+                break;
+            }
+            fmt_map++;
+        }
+        ao->format = fmt_map->mp_format;
+
+        format->encoding = PA_ENCODING_PCM; // INVALID is default, how nice
+        pa_format_info_set_sample_format(format, fmt_map->pa_format);
     }
 
     if (!select_chmap(ao, &map))
@@ -298,9 +301,14 @@ static int init(struct ao *ao)
         MP_ERR(ao, "Failed to allocate proplist\n");
     (void)pa_proplist_sets(proplist, PA_PROP_MEDIA_ROLE, "video");
 
-    format = pa_format_info_from_sample_spec(&ss, &map);
-    if (!format)
+    pa_format_info_set_rate(format, ao->samplerate);
+    pa_format_info_set_channels(format, ao->channels.num);
+    pa_format_info_set_channel_map(format, &map);
+
+    if (!pa_format_info_valid(format)) {
+        MP_ERR(ao, "Invalid audio format\n");
         goto fail;
+    }
 
     if (!(priv->stream = pa_stream_new_extended(priv->context, "audio stream",
                                                 &format, 1, proplist)))
@@ -309,6 +317,13 @@ static int init(struct ao *ao)
 
     pa_proplist_free(proplist);
     proplist = NULL;
+
+    pa_sample_spec ss;
+    pa_channel_map map2;
+    printf("a\n");
+    if (pa_format_info_to_sample_spec(format, &ss, &map2) < 0)
+        goto unlock_and_fail;
+    printf("b\n");
 
     pa_stream_set_state_callback(priv->stream, stream_state_cb, ao);
     pa_stream_set_write_callback(priv->stream, stream_request_cb, ao);
@@ -324,13 +339,13 @@ static int init(struct ao *ao)
     if (pa_stream_connect_playback(priv->stream, sink, &bufattr,
                                    PA_STREAM_NOT_MONOTONIC, NULL, NULL) < 0)
         goto unlock_and_fail;
-
+printf("c\n");
     /* Wait until the stream is ready */
     pa_threaded_mainloop_wait(priv->mainloop);
 
     if (pa_stream_get_state(priv->stream) != PA_STREAM_READY)
         goto unlock_and_fail;
-
+printf("d\n");
     pa_threaded_mainloop_unlock(priv->mainloop);
 
     return 0;
