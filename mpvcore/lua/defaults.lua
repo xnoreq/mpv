@@ -53,7 +53,7 @@ function mp.set_mouse_area(x0, y0, x1, y1, section)
 end
 
 --[[
-set_key_bindings {
+mp.set_key_bindings({
     {"a", function(e) print("\nkey a") end},
     {"b", function(e) print("\nkey b") end},
     {"d", function(e) print("\ndisable input") disable_key_bindings() end},
@@ -62,9 +62,10 @@ set_key_bindings {
     {"mouse_btn2", function(e) print("\nright mouse up") end,
                    function(e) print("\nright mouse down") end},
     {"mouse_move", function(e) print("\nmouse move") end},
-}
-enable_key_bindings()
-set_mouse_area(50, 50, 500, 500)
+}, "test")
+mp.enable_key_bindings("test")
+mp.set_osd_ass(1280, 720, "")
+mp.set_mouse_area(100, 100, 500, 1000, "test")
 --]]
 
 function mp_script_dispatch(id, event)

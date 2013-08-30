@@ -297,7 +297,7 @@ static int script_log(lua_State *L)
     return 0;
 }
 
-static int find_config_file(lua_State *L)
+static int script_find_config_file(lua_State *L)
 {
     const char *s = luaL_checkstring(L, 1);
     char *path = mp_find_user_config_file(s);
@@ -367,7 +367,7 @@ void mp_lua_script_dispatch(struct MPContext *mpctx, char *script_name,
         report_error(L);
 }
 
-static int send_command(lua_State *L)
+static int script_send_command(lua_State *L)
 {
     struct MPContext *mpctx = get_mpctx(L);
     const char *s = luaL_checkstring(L, 1);
@@ -380,7 +380,7 @@ static int send_command(lua_State *L)
     return 0;
 }
 
-static int property_list(lua_State *L)
+static int script_property_list(lua_State *L)
 {
     const struct m_option *props = mp_get_property_list();
     lua_newtable(L);
@@ -392,7 +392,7 @@ static int property_list(lua_State *L)
     return 1;
 }
 
-static int property_string(lua_State *L)
+static int script_property_string(lua_State *L)
 {
     const struct m_option *props = mp_get_property_list();
     struct MPContext *mpctx = get_mpctx(L);
@@ -413,7 +413,7 @@ static int property_string(lua_State *L)
     return 0;
 }
 
-static int set_osd_ass(lua_State *L)
+static int script_set_osd_ass(lua_State *L)
 {
     struct MPContext *mpctx = get_mpctx(L);
     int res_x = luaL_checkinteger(L, 1);
@@ -433,7 +433,7 @@ static int set_osd_ass(lua_State *L)
     return 0;
 }
 
-static int get_osd_resolution(lua_State *L)
+static int script_get_osd_resolution(lua_State *L)
 {
     struct MPContext *mpctx = get_mpctx(L);
     int w, h;
@@ -444,7 +444,7 @@ static int get_osd_resolution(lua_State *L)
     return 2;
 }
 
-static int get_screen_size(lua_State *L)
+static int script_get_screen_size(lua_State *L)
 {
     struct MPContext *mpctx = get_mpctx(L);
     struct osd_object *obj = mpctx->osd->objs[OSDTYPE_EXTERNAL];
@@ -456,7 +456,7 @@ static int get_screen_size(lua_State *L)
     return 3;
 }
 
-static int get_mouse_pos(lua_State *L)
+static int script_get_mouse_pos(lua_State *L)
 {
     struct MPContext *mpctx = get_mpctx(L);
     float px, py;
@@ -469,13 +469,13 @@ static int get_mouse_pos(lua_State *L)
     return 2;
 }
 
-static int get_timer(lua_State *L)
+static int script_get_timer(lua_State *L)
 {
     lua_pushnumber(L, mp_time_sec());
     return 1;
 }
 
-static int get_chapter_list(lua_State *L)
+static int script_get_chapter_list(lua_State *L)
 {
     struct MPContext *mpctx = get_mpctx(L);
     lua_newtable(L); // list
@@ -506,7 +506,7 @@ static const char *stream_type(enum stream_type t)
     }
 }
 
-static int get_track_list(lua_State *L)
+static int script_get_track_list(lua_State *L)
 {
     struct MPContext *mpctx = get_mpctx(L);
     lua_newtable(L); // list
@@ -546,7 +546,7 @@ static int get_track_list(lua_State *L)
     return 1;
 }
 
-static int input_define_section(lua_State *L)
+static int script_input_define_section(lua_State *L)
 {
     struct MPContext *mpctx = get_mpctx(L);
     char *section = (char *)luaL_checkstring(L, 1);
@@ -555,7 +555,7 @@ static int input_define_section(lua_State *L)
     return 0;
 }
 
-static int input_enable_section(lua_State *L)
+static int script_input_enable_section(lua_State *L)
 {
     struct MPContext *mpctx = get_mpctx(L);
     char *section = (char *)luaL_checkstring(L, 1);
@@ -563,7 +563,7 @@ static int input_enable_section(lua_State *L)
     return 0;
 }
 
-static int input_disable_section(lua_State *L)
+static int script_input_disable_section(lua_State *L)
 {
     struct MPContext *mpctx = get_mpctx(L);
     char *section = (char *)luaL_checkstring(L, 1);
@@ -571,7 +571,7 @@ static int input_disable_section(lua_State *L)
     return 0;
 }
 
-static int input_set_section_mouse_area(lua_State *L)
+static int script_input_set_section_mouse_area(lua_State *L)
 {
     struct MPContext *mpctx = get_mpctx(L);
 
@@ -593,10 +593,10 @@ struct fn_entry {
     int (*fn)(lua_State *L);
 };
 
-#define FN_ENTRY(name) {#name, name}
+#define FN_ENTRY(name) {#name, script_ ## name}
 
 static struct fn_entry fn_list[] = {
-    {"log", script_log},
+    FN_ENTRY(log),
     FN_ENTRY(find_config_file),
     FN_ENTRY(send_command),
     FN_ENTRY(property_list),
@@ -624,11 +624,11 @@ static void add_functions(struct script_ctx *ctx)
     }
 
     lua_pushinteger(L, 0);
-    lua_pushcclosure(L, property_string, 1);
+    lua_pushcclosure(L, script_property_string, 1);
     lua_setfield(L, -2, "property_get");
 
     lua_pushinteger(L, 1);
-    lua_pushcclosure(L, property_string, 1);
+    lua_pushcclosure(L, script_property_string, 1);
     lua_setfield(L, -2, "property_get_string");
 }
 
