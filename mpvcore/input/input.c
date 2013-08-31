@@ -1349,15 +1349,11 @@ static struct cmd_bind *find_any_bind_for_key(struct input_ctx *ictx,
     return NULL;
 }
 
-static void update_mouse_section(struct input_ctx *ictx);
-
 static mp_cmd_t *get_cmd_from_keys(struct input_ctx *ictx, char *force_section,
                                    int n, int *keys)
 {
     if (ictx->test)
         return handle_test(ictx, n, keys);
-
-    update_mouse_section(ictx);
 
     struct cmd_bind *cmd = find_any_bind_for_key(ictx, force_section, n, keys);
     if (cmd == NULL && n > 1) {
@@ -1480,6 +1476,7 @@ static mp_cmd_t *interpret_key(struct input_ctx *ictx, int code)
         release_down_cmd(ictx);
         ictx->key_down[ictx->num_key_down] = code & ~MP_KEY_STATE_DOWN;
         ictx->num_key_down++;
+        update_mouse_section(ictx);
         ictx->last_key_down = mp_time_us();
         ictx->ar_state = 0;
         ictx->current_down_cmd = get_cmd_from_keys(ictx, NULL, ictx->num_key_down,
@@ -1650,6 +1647,7 @@ void mp_input_set_mouse_pos(struct input_ctx *ictx, int x, int y)
     ictx->mouse_vo_x = x;
     ictx->mouse_vo_y = y;
 
+    update_mouse_section(ictx);
     struct mp_cmd *cmd =
         get_cmd_from_keys(ictx, NULL, 1, (int[]){MP_KEY_MOUSE_MOVE});
 
