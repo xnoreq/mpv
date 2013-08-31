@@ -1644,10 +1644,6 @@ void mp_input_put_axis(struct input_ctx *ictx, int direction, double value)
 
 void mp_input_set_mouse_pos(struct input_ctx *ictx, int x, int y)
 {
-    // we're already there
-    if (ictx->mouse_vo_x == x && ictx->mouse_vo_y == y)
-        return;
-
     mp_msg(MSGT_INPUT, MSGL_DBG2, "input: mouse move %d/%d\n", x, y);
 
     ictx->mouse_event_counter++;
