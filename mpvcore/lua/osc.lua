@@ -1035,12 +1035,12 @@ function render()
 
     --local now = mp.get_timer()
 
+    render_message(ass)
 
     if state.osc_visible then
         render_elements(ass)
     end
 
-    render_message(ass)
 
 
     --[[ Old show handling
@@ -1106,7 +1106,14 @@ function render()
          + get_align(-1 + user_opts.deadzonedist, osc_param.playresy - (osc_param.posY + (osc_param.osc_h / 2)), 0, 0)
     end
 
-    mp.set_mouse_area(0, area_y0, osc_param.playresx, area_y1)
+    --mouse show/hide area
+    mp.set_mouse_area(0, area_y0, osc_param.playresx, area_y1, "showhide")
+
+    --mouse input area
+    mp.set_mouse_area(
+        osc_param.posX - (osc_param.osc_w / 2), osc_param.posY - (osc_param.osc_h / 2),
+        osc_param.posX + (osc_param.osc_w / 2), osc_param.posY + (osc_param.osc_h / 2),
+        "input")
 
 end
 
@@ -1184,17 +1191,23 @@ function mp_event(name, arg)
     end
 end
 
-mp.set_key_bindings {
+-- mouse show/hide bindings
+mp.set_key_bindings({
+    {"mouse_move",              function(e) process_event("mouse_move", nil) end},
+    {"mouse_leave",             mouse_leave},
+}, "showhide")
+mp.enable_key_bindings("showhide")
+
+--mouse input bindings
+mp.set_key_bindings({
     {"mouse_btn0",              function(e) process_event("mouse_btn0", "up") end,
                                 function(e) process_event("mouse_btn0", "down")  end},
     {"shift+mouse_btn0",        function(e) process_event("shift+mouse_btn0", "up") end,
                                 function(e) process_event("shift+mouse_btn0", "down")  end},
     {"mouse_btn2",              function(e) process_event("mouse_btn2", "up") end,
                                 function(e) process_event("mouse_btn2", "down")  end},
-    {"mouse_move",              function(e) process_event("mouse_move", nil) end},
-    {"mouse_leave",             mouse_leave},
     {"mouse_btn0_dbl",          "ignore"},
     {"shift+mouse_btn0_dbl",    "ignore"},
     {"mouse_btn2_dbl",          "ignore"},
-}
-mp.enable_key_bindings()
+}, "input")
+mp.enable_key_bindings("input")
