@@ -1455,6 +1455,15 @@ static mp_cmd_t *interpret_key(struct input_ctx *ictx, int code)
     if (unmod >= 32 && unmod < MP_KEY_BASE)
         code &= ~MP_KEY_MODIFIER_SHIFT;
 
+    if (mp_msg_test(MSGT_INPUT, MSGL_DBG2)) {
+        int noflags = code & ~(MP_KEY_STATE_DOWN | MP_KEY_STATE_UP);
+        char *key = get_key_name(noflags, NULL);
+        mp_msg(MSGT_INPUT, MSGL_DBG2, "input: key code=%#x '%s'%s%s\n",
+               code, key, (code & MP_KEY_STATE_DOWN) ? " down" : "",
+               (code & MP_KEY_STATE_UP) ? " up" : "");
+        talloc_free(key);
+    }
+
     if (!(code & MP_KEY_STATE_UP) && ictx->num_key_down >= MP_MAX_KEY_DOWN) {
         mp_tmsg(MSGT_INPUT, MSGL_ERR, "Too many key down events "
                 "at the same time\n");
@@ -1576,7 +1585,6 @@ static void mp_input_feed_key(struct input_ctx *ictx, int code)
     int unmod = code & ~MP_KEY_MODIFIER_MASK;
     if (MP_KEY_DEPENDS_ON_MOUSE_POS(unmod))
         ictx->mouse_event_counter++;
-    mp_msg(MSGT_INPUT, MSGL_DBG2, "input: key code=%#x\n", code);
     struct mp_cmd *cmd = interpret_key(ictx, code);
     if (!cmd)
         return;
