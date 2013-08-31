@@ -2129,20 +2129,27 @@ void mp_input_set_section_mouse_area(struct input_ctx *ictx, char *name,
     s->mouse_area_set = x0 != x1 && y0 != y1;
 }
 
-bool mp_input_test_mouse_active(struct input_ctx *ictx, int x, int y)
+static bool test_mouse(struct input_ctx *ictx, int x, int y, int rej_flags)
 {
     for (int i = 0; i < ictx->num_active_sections; i++) {
-        char *name = ictx->active_sections[i].name;
-        struct cmd_bind_section *s = get_bind_section(ictx, bstr0(name));
+        struct active_section *as = &ictx->active_sections[i];
+        if (as->flags & rej_flags)
+            continue;
+        struct cmd_bind_section *s = get_bind_section(ictx, bstr0(as->name));
         if (s->mouse_area_set && test_rect(&s->mouse_area, x, y))
             return true;
     }
     return false;
 }
 
+bool mp_input_test_mouse_active(struct input_ctx *ictx, int x, int y)
+{
+    return test_mouse(ictx, x, y, 0);
+}
+
 bool mp_input_test_dragging(struct input_ctx *ictx, int x, int y)
 {
-    return mp_input_test_mouse_active(ictx, x, y);
+    return test_mouse(ictx, x, y, MP_INPUT_ALLOW_VO_DRAGGING);
 }
 
 // builtin: if true, remove all builtin binds, else remove all user binds
