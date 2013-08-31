@@ -18,6 +18,7 @@
 #include "sub/sub.h"
 #include "osdep/timer.h"
 #include "path.h"
+#include "bstr.h"
 
 // List of builtin modules and their contents as strings.
 // All these are generated from mpvcore/lua/*.lua
@@ -559,7 +560,21 @@ static int script_input_enable_section(lua_State *L)
 {
     struct MPContext *mpctx = get_mpctx(L);
     char *section = (char *)luaL_checkstring(L, 1);
-    mp_input_enable_section(mpctx->input, section, 0);
+    char *sflags = (char *)luaL_optstring(L, 2, "");
+    bstr bflags = bstr0(sflags);
+    int flags = 0;
+    while (bflags.len) {
+        bstr val;
+        bstr_split_tok(bflags, "|", &val, &bflags);
+        if (bstr_equals0(val, "allow-vo-dragging")) {
+            flags |= MP_INPUT_ALLOW_VO_DRAGGING;
+        } else if (bstr_equals0(val, "exclusive")) {
+            flags |= MP_INPUT_EXCLUSIVE;
+        } else {
+            luaL_error(L, "invalid flag: '%.*s'", BSTR_P(val));
+        }
+    }
+    mp_input_enable_section(mpctx->input, section, flags);
     return 0;
 }
 

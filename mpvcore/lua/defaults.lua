@@ -40,8 +40,8 @@ function mp.set_key_bindings(list, section)
     mp.input_define_section(section or default_section, cfg)
 end
 
-function mp.enable_key_bindings(section)
-    mp.input_enable_section(section or default_section)
+function mp.enable_key_bindings(section, flags)
+    mp.input_enable_section(section or default_section, flags)
 end
 
 function mp.disable_key_bindings(section)
