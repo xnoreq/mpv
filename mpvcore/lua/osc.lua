@@ -796,7 +796,7 @@ function osc_init()
             if not (get_track("audio") == 0) then
                 aid = get_track("audio")
             end
-            ass:append("\238\132\134 " .. osc_styles.smallButtonsLlabel .. aid .. "/" .. #tracks_osc.audio)
+            ass:append("\238\132\134" .. osc_styles.smallButtonsLlabel .. " " .. aid .. "/" .. #tracks_osc.audio)
         end
 
         eventresponder.mouse_btn0_up = function () set_track("audio", 1) end
@@ -809,7 +809,7 @@ function osc_init()
         contentF = function (ass)
             local aid = mp.property_get("audio")
 
-            ass:append("\238\132\134 " .. osc_styles.smallButtonsLlabel .. aid)
+            ass:append("\238\132\134" .. osc_styles.smallButtonsLlabel .. " " .. aid)
         end
 
         eventresponder.mouse_btn0_up = function () mp.send_command("osd-msg add audio 1") end
@@ -833,7 +833,7 @@ function osc_init()
             if not (get_track("sub") == 0) then
                 sid = get_track("sub")
             end
-            ass:append("\238\132\135 " .. osc_styles.smallButtonsLlabel .. sid .. "/" .. #tracks_osc.sub)
+            ass:append("\238\132\135" .. osc_styles.smallButtonsLlabel .. " " .. sid .. "/" .. #tracks_osc.sub)
         end
 
         eventresponder.mouse_btn0_up = function () set_track("sub", 1) end
@@ -846,7 +846,7 @@ function osc_init()
         contentF = function (ass)
             local sid = mp.property_get("sub")
 
-            ass:append("\238\132\135 " .. osc_styles.smallButtonsLlabel .. sid)
+            ass:append("\238\132\135" .. osc_styles.smallButtonsLlabel .. " " .. sid)
         end
 
         eventresponder.mouse_btn0_up = function () mp.send_command("osd-msg add sub 1") end
@@ -905,6 +905,7 @@ function osc_init()
     local eventresponder = {}
     local sliderF = function (element)
         local seek_to = get_slider_value(element)
+        -- ignore identical seeks
         if not(state.last_seek == seek_to) then
             mp.send_command(string.format("no-osd seek %f absolute-percent keyframes", get_slider_value(element)))
             state.last_seek = seek_to
