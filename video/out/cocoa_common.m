@@ -794,7 +794,7 @@ int vo_cocoa_cgl_color_size(struct vo *vo)
     NSTrackingAreaOptions trackingOptions =
         NSTrackingEnabledDuringMouseDrag |
         NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved |
-        NSTrackingActiveInActiveApp;
+        NSTrackingActiveAlways;
 
     self.tracker =
         [[[NSTrackingArea alloc] initWithRect:[self bounds]
@@ -822,6 +822,7 @@ int vo_cocoa_cgl_color_size(struct vo *vo)
     return CGRectContainsPoint(clippedBounds, [self mouseLocation]);
 }
 
+- (BOOL)acceptsFirstMouse:(NSEvent *)theEvent { return YES; }
 - (BOOL)acceptsFirstResponder { return YES; }
 - (BOOL)becomeFirstResponder { return YES; }
 - (BOOL)resignFirstResponder { return YES; }
