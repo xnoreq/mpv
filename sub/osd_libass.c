@@ -394,6 +394,14 @@ static void update_object(struct osd_state *osd, struct osd_object *obj)
     }
 }
 
+static void expand_rc(struct mp_rect *rc, int s)
+{
+    rc->x0 -= s;
+    rc->y0 -= s;
+    rc->x1 += s;
+    rc->y1 += s;
+}
+
 // Draw a background behind everything covered by the sub-images.
 // libass can in theory do it itself with style->BorderStyle = 3, but the
 // results are not ideal, and will include differently sized bounding boxes
@@ -413,9 +421,12 @@ static void emulate_back_color(struct osd_object *obj, struct sub_bitmaps *imgs,
     memmove(imgs->parts + num, imgs->parts,
             sizeof(imgs->parts[0]) * imgs->num_parts);
     imgs->num_parts += num;
+    int border = 3.0 * obj->vo_res.h / MPMAX(obj->osd_track->PlayResY, 1);
     size_t tsize = 0;
-    for (int n = 0; n < num; n++)
+    for (int n = 0; n < num; n++) {
+        expand_rc(&rcs[n], border);
         tsize = MPMAX(tsize, (rcs[n].x1 - rcs[n].x0) * (rcs[n].y1 - rcs[n].y0));
+    }
     if (talloc_get_size(obj->back_tmp) < tsize)
         obj->back_tmp = talloc_realloc(obj, obj->back_tmp, char, tsize);
     memset(obj->back_tmp, 0xFF, tsize);
