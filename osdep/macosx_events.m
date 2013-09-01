@@ -159,7 +159,8 @@ void cocoa_uninit_media_keys(void) {
 
 void cocoa_put_key(int keycode)
 {
-    mp_input_put_key(mpv_shared_app().inputContext, keycode);
+    if (mpv_shared_app().inputContext)
+        mp_input_put_key(mpv_shared_app().inputContext, keycode);
 }
 
 void cocoa_put_key_with_modifiers(int keycode, int modifiers)
@@ -242,9 +243,9 @@ void cocoa_put_key_with_modifiers(int keycode, int modifiers)
 - (BOOL)handleMediaKey:(NSEvent *)event
 {
     NSDictionary *keymap = @{
-        @(NX_KEYTYPE_PLAY):    @(MP_MK_PLAY),
-        @(NX_KEYTYPE_REWIND):  @(MP_MK_PREV),
-        @(NX_KEYTYPE_FAST):    @(MP_MK_NEXT),
+        @(NX_KEYTYPE_PLAY):    @(MP_KEY_PLAY),
+        @(NX_KEYTYPE_REWIND):  @(MP_KEY_PREV),
+        @(NX_KEYTYPE_FAST):    @(MP_KEY_NEXT),
     };
 
     return [self handleKey:mk_code(event)
