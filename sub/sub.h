@@ -113,6 +113,8 @@ struct osd_object {
     // Internally used by osd_libass.c
     struct ass_track *osd_track;
     struct sub_bitmap *parts_cache;
+    struct m_color back_color;
+    void *back_tmp;
 };
 
 struct osd_state {

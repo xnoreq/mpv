@@ -28,6 +28,7 @@
 #include "mpvcore/mp_common.h"
 #include "mpvcore/mp_msg.h"
 #include "sub.h"
+#include "img_convert.h"
 
 static const char osd_font_pfb[] =
 #include "sub/osd_font.h"
@@ -93,6 +94,8 @@ static void create_osd_ass_track(struct osd_state *osd, struct osd_object *obj)
         // Set to neutral base direction, as opposed to VSFilter LTR default
         style->Encoding = -1;
     }
+
+    obj->back_color = osd->opts->osd_style->back_color;
 
     obj->osd_track = track;
 }
@@ -365,6 +368,7 @@ static void update_sub(struct osd_state *osd, struct osd_object *obj)
 
     ASS_Style *style = obj->osd_track->styles + obj->osd_track->default_style;
     mp_ass_set_style(style, obj->osd_track->PlayResY, &font);
+    obj->back_color = font.back_color;
 
 #if LIBASS_VERSION >= 0x01010000
     ass_set_line_position(osd->osd_render, 100 - opts->sub_pos);
@@ -390,6 +394,43 @@ static void update_object(struct osd_state *osd, struct osd_object *obj)
     }
 }
 
+// Draw a background behind everything covered by the sub-images.
+// libass can in theory do it itself with style->BorderStyle = 3, but the
+// results are not ideal, and will include differently sized bounding boxes
+// for each glyph.
+static void emulate_back_color(struct osd_object *obj, struct sub_bitmaps *imgs,
+                               struct m_color back)
+{
+    if (back.a == 0 || imgs->format != SUBBITMAP_LIBASS)
+        return;
+    struct mp_rect rcs[MP_SUB_BB_LIST_MAX];
+    int num = mp_get_sub_bb_list(imgs, rcs, MP_SUB_BB_LIST_MAX);
+    if (num == 0)
+        return;
+    imgs->parts = talloc_realloc(obj, imgs->parts, struct sub_bitmap,
+                                 imgs->num_parts + num);
+    obj->parts_cache = imgs->parts;
+    memmove(imgs->parts + num, imgs->parts,
+            sizeof(imgs->parts[0]) * imgs->num_parts);
+    imgs->num_parts += num;
+    size_t tsize = 0;
+    for (int n = 0; n < num; n++)
+        tsize = MPMAX(tsize, (rcs[n].x1 - rcs[n].x0) * (rcs[n].y1 - rcs[n].y0));
+    if (talloc_get_size(obj->back_tmp) < tsize)
+        obj->back_tmp = talloc_realloc(obj, obj->back_tmp, char, tsize);
+    memset(obj->back_tmp, 0xFF, tsize);
+    for (int n = 0; n < num; n++) {
+        struct sub_bitmap *sub = &imgs->parts[n];
+        sub->x = rcs[n].x0;
+        sub->y = rcs[n].y0;
+        sub->w = sub->dw = rcs[n].x1 - rcs[n].x0;
+        sub->h = sub->dh = rcs[n].y1 - rcs[n].y0;
+        sub->bitmap = obj->back_tmp;
+        sub->stride = sub->w;
+        sub->libass.color = MP_ASS_COLOR(back);
+    }
+}
+
 void osd_object_get_bitmaps(struct osd_state *osd, struct osd_object *obj,
                             struct sub_bitmaps *out_imgs)
 {
@@ -405,4 +446,5 @@ void osd_object_get_bitmaps(struct osd_state *osd, struct osd_object *obj,
     mp_ass_render_frame(osd->osd_render, obj->osd_track, 0,
                         &obj->parts_cache, out_imgs);
     talloc_steal(obj, obj->parts_cache);
+    emulate_back_color(obj, out_imgs, obj->back_color);
 }
