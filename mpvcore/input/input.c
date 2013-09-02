@@ -720,6 +720,23 @@ static struct mp_cmd *queue_peek(struct cmd_queue *queue)
     return ret;
 }
 
+static void queue_add_or_coalesce_tail(struct cmd_queue *queue,
+                                       struct mp_cmd *cmd)
+{
+    if (cmd->mouse_move) {
+        struct mp_cmd **p_prev = &queue->first;
+        while (*p_prev)
+            p_prev = &(*p_prev)->queue_next;
+        if (*p_prev && (*p_prev)->mouse_move) {
+            talloc_free(*p_prev);
+            *p_prev = cmd;
+            cmd->queue_next = NULL;
+            return;
+        }
+    }
+    queue_add_tail(queue, cmd);
+}
+
 static struct input_fd *mp_input_add_fd(struct input_ctx *ictx)
 {
     if (ictx->num_fds == MP_MAX_FDS) {
@@ -1668,7 +1685,7 @@ void mp_input_set_mouse_pos(struct input_ctx *ictx, int x, int y)
         if (should_drop_cmd(ictx, cmd)) {
             talloc_free(cmd);
         } else {
-            queue_add_tail(&ictx->cmd_queue, cmd);
+            queue_add_or_coalesce_tail(&ictx->cmd_queue, cmd);
         }
     }
     input_unlock(ictx);
