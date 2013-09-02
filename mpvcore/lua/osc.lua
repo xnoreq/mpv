@@ -16,6 +16,7 @@ local user_opts = {
     vidscale = true,                        -- scale the controller with the video?
     valign = 0.8,                           -- vertical alignment, -1 (top) to 1 (bottom)
     halign = 0,                             -- horizontal alignment, -1 (left) to 1 (right)
+    fadeduration = 100,                    -- duration of fade in/out in ms, 0 = no fade
     deadzonedist = 0.15,                    -- distance between OSC and deadzone
     iAmAProgrammer = false,                 -- start counting stuff at 0 and disable OSC internal playlist management (and some functions that depend on it)
 }
@@ -46,21 +47,23 @@ local osc_param = {
 }
 
 local osc_styles = {
-    bigButtons = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs50\\fnmpv-osd-symbols}",
-    smallButtonsL = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs20\\fnmpv-osd-symbols}",
+    bigButtons = "{\\bord0\\1c&HFFFFFF\\3c&HFFFFFF\\fs50\\fnmpv-osd-symbols}",
+    smallButtonsL = "{\\bord0\\1c&HFFFFFF\\3c&HFFFFFF\\fs20\\fnmpv-osd-symbols}",
     smallButtonsLlabel = "{\\fs17\\fn" .. mp.property_get("options/osd-font") .. "}",
-    smallButtonsR = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs30\\fnmpv-osd-symbols}",
+    smallButtonsR = "{\\bord0\\1c&HFFFFFF\\3c&HFFFFFF\\fs30\\fnmpv-osd-symbols}",
 
     elementDown = "{\\1c&H999999}",
-    elementDisab = "{\\1a&H88&}",
-    timecodes = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs20}",
-    vidtitle = "{\\bord0\\1c&HFFFFFF\\1a&H00&\\3c&HFFFFFF\\3a&HFF&\\fs12}",
-    box = "{\\bord1\\1c&H000000\\1a&H50&\\3c&HFFFFFF\\3a&H50&}",
+    timecodes = "{\\bord0\\1c&HFFFFFF\\3c&HFFFFFF\\fs20}",
+    vidtitle = "{\\bord0\\1c&HFFFFFF\\3c&HFFFFFF\\fs12}",
+    box = "{\\bord1\\1c&H000000\\3c&HFFFFFF}",
 }
 
 -- internal states, do not touch
 local state = {
     osc_visible = false,
+    anistart,                               -- time when the animation started
+    anitype,                                -- current type of animation
+    animation,                              -- current animation alpha
     mouse_down_counter = 0,                 -- used for softrepeat
     active_element = nil,                   -- nil = none, 0 = background, 1+ = see elements[]
     active_event_source = nil,              -- the "button" that issued the current event
@@ -363,6 +366,7 @@ function register_element(type, x, y, an, w, h, style, content, eventresponder, 
     if metainfo.enabled == nil then metainfo.enabled = true end         -- element clickable?
     if metainfo.styledown == nil then metainfo.styledown = true end     -- should the element be styled with the elementDown style when clicked?
     if metainfo.softrepeat == nil then metainfo.softrepeat = false end  -- should the *_down event be executed with "hold for repeat" behaviour?
+    if metainfo.alpha == nil then metainfo.alpha = 0 end                -- alpha of the element, 0 = opaque, 255 = transparent
 
     if metainfo.visible then
         local ass = assdraw.ass_new()
@@ -375,7 +379,7 @@ function register_element(type, x, y, an, w, h, style, content, eventresponder, 
 
         -- if the element is supposed to be disabled, style it accordingly and kill the eventresponders
         if metainfo.enabled == false then
-            ass:append(osc_styles.elementDisab)
+            metainfo.alpha = 136
             eventresponder = nil
         end
 
@@ -498,9 +502,24 @@ function render_elements(master_ass)
     for n = 1, #elements do
 
         local element = elements[n]
-        local elem_ass1 = element.elem_ass
+
         local elem_ass = assdraw.ass_new()
+
+        local elem_ass1 = element.elem_ass
         elem_ass:merge(elem_ass1)
+
+        --alpha
+
+        local alpha = element.metainfo.alpha
+
+        if not(state.animation == nil) then
+            alpha = 255 - (((1-(alpha/255)) * (1-(state.animation/255))) * 255)
+        end
+
+        if (alpha > 0) then
+            elem_ass:append(string.format("{\\alpha&H%X&}",alpha))
+        end
+
 
         if state.active_element == n then
 
@@ -568,6 +587,7 @@ function render_elements(master_ass)
         else
             elem_ass:append(element.content) -- text objects
         end
+        --print(elem_ass.text)
 
         master_ass:merge(elem_ass)
     end
@@ -663,8 +683,9 @@ function osc_init()
     --
     -- Backround box
     --
-
-    register_box(posX, posY, 5, osc_w, osc_h, osc_r, osc_styles.box, nil)
+    local metainfo = {}
+    metainfo.alpha = 80
+    register_box(posX, posY, 5, osc_w, osc_h, osc_r, osc_styles.box, metainfo)
 
     --
     -- Title row
@@ -907,7 +928,7 @@ function osc_init()
         local seek_to = get_slider_value(element)
         -- ignore identical seeks
         if not(state.last_seek == seek_to) then
-            mp.send_command(string.format("no-osd seek %f absolute-percent keyframes", get_slider_value(element)))
+            mp.send_command(string.format("no-osd seek %f absolute-percent keyframes", seek_to))
             state.last_seek = seek_to
         end
     end
@@ -995,13 +1016,29 @@ end
 -- Other important stuff
 --
 
+function start_animation(anitype)
+    state.anitype = anitype
+end
+
 function show_osc()
-    --state.last_osd_time = mp.get_timer()
-    state.osc_visible = true
+    if (user_opts.fadeduration > 0) then
+        if not(state.osc_visible == true) or (state.anitype == "out") then
+            start_animation("in")
+        end
+    else
+        state.osc_visible = true
+    end
+
 end
 
 function hide_osc()
-    state.osc_visible = false
+    if (user_opts.fadeduration > 0) then
+        if not(state.osc_visible == false) then
+            start_animation("out")
+        end
+    else
+        state.osc_visible = false
+    end
 end
 
 function mouse_leave()
@@ -1025,6 +1062,41 @@ function render()
     if state.initREQ then
         osc_init()
         state.initREQ = false
+    end
+
+    if not(state.anitype == nil) then
+
+        local now = mp.get_timer()
+
+        if (state.anistart == nil) then
+            state.anistart = now
+        end
+
+        if (now < state.anistart + (user_opts.fadeduration/1000)  ) then
+
+            if (state.anitype == "in") then --fade in
+                state.osc_visible = true
+
+                state.animation = scale_value(state.anistart, (state.anistart + (user_opts.fadeduration/1000)), 255, 0, now)
+
+                --state.animation = string.format("{\\1a&H%X&}",alpha)
+                --print("\n -> ".. state.animation .."\n")
+
+
+            elseif (state.anitype == "out") then --fade in
+
+                state.animation = scale_value(state.anistart, (state.anistart + (user_opts.fadeduration/1000)), 0, 255, now)
+            end
+
+
+        else
+            if (state.anitype == "out") then state.osc_visible = false end
+            state.anistart = nil
+            state.animation = nil
+            state.anitype =  nil
+        end
+
+
     end
 
     local ass = assdraw.ass_new()
