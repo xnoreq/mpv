@@ -80,6 +80,7 @@ function mp_script_dispatch(id, event)
 end
 
 mp.msg = {
+    log = mp.log,
     fatal = function(...) return mp.log("fatal", ...) end,
     error = function(...) return mp.log("error", ...) end,
     warn = function(...) return mp.log("warn", ...) end,

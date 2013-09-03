@@ -281,9 +281,9 @@ static int script_log(lua_State *L)
     if (msgl < 0)
         luaL_error(L, "Invalid log level '%s'", level);
 
-    int elems = lua_gettop(L) - 1;
+    int last = lua_gettop(L);
     lua_getglobal(L, "tostring"); // args... tostring
-    for (int i = 0; i < elems; i++) {
+    for (int i = 2; i <= last; i++) {
         lua_pushvalue(L, -1); // args... tostring tostring
         lua_pushvalue(L, i); // args... tostring tostring args[i]
         lua_call(L, 1, 1); // args... tostring str
