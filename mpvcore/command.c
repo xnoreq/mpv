@@ -157,8 +157,13 @@ static int mp_property_filename(m_option_t *prop, int action, void *arg,
 {
     if (!mpctx->filename)
         return M_PROPERTY_UNAVAILABLE;
-    char *f = (char *)mp_basename(mpctx->filename);
-    return m_property_strdup_ro(prop, action, arg, (*f) ? f : mpctx->filename);
+    char *filename = talloc_strdup(NULL, mpctx->filename);
+    if (mp_is_url(bstr0(filename)))
+        mp_url_unescape_inplace(filename);
+    char *f = (char *)mp_basename(filename);
+    int r = m_property_strdup_ro(prop, action, arg, f[0] ? f : filename);
+    talloc_free(filename);
+    return r;
 }
 
 static int mp_property_media_title(m_option_t *prop, int action, void *arg,
@@ -2334,8 +2339,10 @@ void run_command(MPContext *mpctx, mp_cmd_t *cmd)
             playlist_transfer_entries(mpctx->playlist, pl);
             talloc_free(pl);
 
-            if (!append && mpctx->playlist->first)
-                mp_set_playlist_entry(mpctx, mpctx->playlist->first);
+            if (!append && mpctx->playlist->first) {
+                struct playlist_entry *e = mp_resume_playlist(mpctx->playlist);
+                mp_set_playlist_entry(mpctx, e ? e : mpctx->playlist->first);
+            }
         } else {
             mp_tmsg(MSGT_CPLAYER, MSGL_ERR,
                     "\nUnable to load playlist %s.\n", filename);

@@ -688,6 +688,8 @@ static void load_per_protocol_config(m_config_t *conf, const char * const file)
     m_profile_t *p;
 
     /* does filename actually uses a protocol ? */
+    if (!mp_is_url(bstr0(file)))
+        return;
     str = strstr(file, "://");
     if (!str)
         return;
@@ -790,11 +792,6 @@ static void load_per_file_config(m_config_t *conf, const char * const file,
     }
 }
 
-static bool might_be_an_url(bstr f)
-{
-    return bstr_find0(f, "://") >= 0;
-}
-
 #define MP_WATCH_LATER_CONF "watch_later"
 
 static char *get_playback_resume_config_filename(const char *fname)
@@ -802,7 +799,7 @@ static char *get_playback_resume_config_filename(const char *fname)
     char *res = NULL;
     void *tmp = talloc_new(NULL);
     const char *realpath = fname;
-    if (!might_be_an_url(bstr0(fname))) {
+    if (!mp_is_url(bstr0(fname))) {
         char *cwd = mp_getcwd(tmp);
         if (!cwd)
             goto exit;
@@ -905,6 +902,23 @@ static void load_playback_resume(m_config_t *conf, const char *file)
         unlink(fname);
     }
     talloc_free(fname);
+}
+
+// Returns the first file that has a resume config.
+// Compared to hashing the playlist file or contents and managing separate
+// resume file for them, this is simpler, and also has the nice property
+// that appending to a playlist doesn't interfere with resuming (especially
+// if the playlist comes from the command line).
+struct playlist_entry *mp_resume_playlist(struct playlist *playlist)
+{
+    for (struct playlist_entry *e = playlist->first; e; e = e->next) {
+        char *conf = get_playback_resume_config_filename(e->filename);
+        bool exists = conf && mp_path_exists(conf);
+        talloc_free(conf);
+        if (exists)
+            return e;
+    }
+    return NULL;
 }
 
 static void load_per_file_options(m_config_t *conf,
@@ -4798,7 +4812,10 @@ static int mpv_main(int argc, char *argv[])
 
     if (opts->shuffle)
         playlist_shuffle(mpctx->playlist);
-    mpctx->playlist->current = mpctx->playlist->first;
+
+    mpctx->playlist->current = mp_resume_playlist(mpctx->playlist);
+    if (!mpctx->playlist->current)
+        mpctx->playlist->current = mpctx->playlist->first;
 
     play_files(mpctx);
 

@@ -227,3 +227,19 @@ bool mp_path_isdir(const char *path)
     struct stat st;
     return mp_stat(path, &st) == 0 && S_ISDIR(st.st_mode);
 }
+
+// Return false if it's considered a normal local filesystem path.
+bool mp_is_url(bstr path)
+{
+    int proto = bstr_find0(path, "://");
+    if (proto < 0)
+        return false;
+    // The protocol part must be alphanumeric, otherwise it's not an URL.
+    for (int i = 0; i < proto; i++) {
+        unsigned char c = path.start[i];
+        if (!(c >= 'a' && c <= 'z') && !(c >= 'A' && c <= 'Z') &&
+            !(c >= '0' && c <= '9') && c != '_')
+            return false;
+    }
+    return true;
+}
