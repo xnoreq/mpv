@@ -1683,6 +1683,8 @@ void mp_input_set_mouse_pos(struct input_ctx *ictx, int x, int y)
     update_mouse_section(ictx);
     struct mp_cmd *cmd =
         get_cmd_from_keys(ictx, NULL, 1, (int[]){MP_KEY_MOUSE_MOVE});
+    if (!cmd)
+        cmd = mp_input_parse_cmd(bstr0("ignore"), "<internal>");
 
     if (cmd) {
         cmd->mouse_move = true;
