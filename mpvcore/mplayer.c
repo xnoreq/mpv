@@ -894,9 +894,11 @@ exit:
 static void load_playback_resume(m_config_t *conf, const char *file)
 {
     char *fname = get_playback_resume_config_filename(file);
-    if (fname) {
+    if (fname && mp_path_exists(fname)) {
         // Never apply the saved start position to following files
         m_config_backup_opt(conf, "start");
+        mp_msg(MSGT_CPLAYER, MSGL_INFO, "Resuming playback. This behavior can "
+               "be disabled with --no-resume-playback.\n");
         try_load_config(conf, fname, false);
         unlink(fname);
     }
@@ -4497,8 +4499,7 @@ goto_reopen_demuxer: ;
 
 terminate_playback:  // don't jump here after ao/vo/getch initialization!
 
-    if (opts->position_save_on_quit && mpctx->stop_play != PT_RESTART &&
-        mpctx->stop_play != AT_END_OF_FILE)
+    if (opts->position_save_on_quit && mpctx->stop_play == PT_QUIT)
         mp_write_watch_later_conf(mpctx);
 
     if (mpctx->step_frames)

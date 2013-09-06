@@ -566,7 +566,9 @@ static int script_input_enable_section(lua_State *L)
     while (bflags.len) {
         bstr val;
         bstr_split_tok(bflags, "|", &val, &bflags);
-        if (bstr_equals0(val, "allow-vo-dragging")) {
+        if (bstr_equals0(val, "allow-hide-cursor")) {
+            flags |= MP_INPUT_ALLOW_HIDE_CURSOR;
+        } else if (bstr_equals0(val, "allow-vo-dragging")) {
             flags |= MP_INPUT_ALLOW_VO_DRAGGING;
         } else if (bstr_equals0(val, "exclusive")) {
             flags |= MP_INPUT_EXCLUSIVE;

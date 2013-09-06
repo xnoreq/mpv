@@ -66,11 +66,13 @@
 
 #if HAVE_PTHREADS
 #include <pthread.h>
-#define input_lock(ictx)   pthread_mutex_lock(&ictx->mutex)
-#define input_unlock(ictx) pthread_mutex_unlock(&ictx->mutex)
+#define input_lock(ictx)    pthread_mutex_lock(&ictx->mutex)
+#define input_unlock(ictx)  pthread_mutex_unlock(&ictx->mutex)
+#define input_destroy(ictx) pthread_mutex_destroy(&ictx->mutex)
 #else
 #define input_lock(ictx) 0
 #define input_unlock(ictx) 0
+#define input_destroy(ictx) 0
 #endif
 
 #define MP_MAX_KEY_DOWN 4
@@ -1353,8 +1355,9 @@ static struct cmd_bind *find_any_bind_for_key(struct input_ctx *ictx,
         struct cmd_bind *bind = find_bind_for_key_section(ictx, s->name, n, keys);
         if (bind) {
             struct cmd_bind_section *bs = bind->owner;
-            if (!use_mouse || !bs->mouse_area_set ||
-                test_rect(&bs->mouse_area, ictx->mouse_vo_x, ictx->mouse_vo_y))
+            if (!use_mouse || (bs->mouse_area_set && test_rect(&bs->mouse_area,
+                                                               ictx->mouse_vo_x,
+                                                               ictx->mouse_vo_y)))
                 return bind;
         }
         if (s->flags & MP_INPUT_EXCLUSIVE)
@@ -1378,9 +1381,12 @@ static mp_cmd_t *get_cmd_from_keys(struct input_ctx *ictx, char *force_section,
     }
 
     if (cmd == NULL) {
+        int msgl = MSGL_WARN;
+        if (n == 1 && (keys[0] == MP_KEY_MOUSE_MOVE ||
+                       keys[0] == MP_KEY_MOUSE_LEAVE))
+            msgl = MSGL_DBG2;
         char *key_buf = get_key_combo_name(keys, n);
-        mp_tmsg(MSGT_INPUT, MSGL_WARN,
-                "No bind found for key '%s'.\n", key_buf);
+        mp_tmsg(MSGT_INPUT, msgl, "No bind found for key '%s'.\n", key_buf);
         talloc_free(key_buf);
         return NULL;
     }
@@ -1677,6 +1683,8 @@ void mp_input_set_mouse_pos(struct input_ctx *ictx, int x, int y)
     update_mouse_section(ictx);
     struct mp_cmd *cmd =
         get_cmd_from_keys(ictx, NULL, 1, (int[]){MP_KEY_MOUSE_MOVE});
+    if (!cmd)
+        cmd = mp_input_parse_cmd(bstr0("ignore"), "<internal>");
 
     if (cmd) {
         cmd->mouse_move = true;
@@ -2188,7 +2196,7 @@ static bool test_mouse(struct input_ctx *ictx, int x, int y, int rej_flags)
 
 bool mp_input_test_mouse_active(struct input_ctx *ictx, int x, int y)
 {
-    return test_mouse(ictx, x, y, 0);
+    return test_mouse(ictx, x, y, MP_INPUT_ALLOW_HIDE_CURSOR);
 }
 
 bool mp_input_test_dragging(struct input_ctx *ictx, int x, int y)
@@ -2252,7 +2260,10 @@ struct input_ctx *mp_input_init(struct MPOpts *opts)
     pthread_mutexattr_destroy(&attr);
 #endif
 
-    mp_input_enable_section(ictx, NULL, 0);
+    // Setup default section, so that it does nothing.
+    mp_input_enable_section(ictx, NULL, MP_INPUT_ALLOW_VO_DRAGGING |
+                                        MP_INPUT_ALLOW_HIDE_CURSOR);
+    mp_input_set_section_mouse_area(ictx, NULL, INT_MIN, INT_MIN, INT_MAX, INT_MAX);
 
     // "Uncomment" the default key bindings in etc/input.conf and add them.
     // All lines that do not start with '# ' are parsed.
@@ -2390,7 +2401,7 @@ void mp_input_uninit(struct input_ctx *ictx)
     }
     clear_queue(&ictx->cmd_queue);
     talloc_free(ictx->current_down_cmd);
-    pthread_mutex_destroy(&ictx->mutex);
+    input_destroy(ictx);
     talloc_free(ictx);
 }
 
