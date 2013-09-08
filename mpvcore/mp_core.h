@@ -31,6 +31,7 @@
 #define INITIALIZED_AO      2
 #define INITIALIZED_VOL     4
 #define INITIALIZED_GETCH2  8
+#define INITIALIZED_PLAYBACK 16
 #define INITIALIZED_STREAM  64
 #define INITIALIZED_DEMUXER 512
 #define INITIALIZED_ACODEC  1024
@@ -106,10 +107,9 @@ struct track {
     // If the track's stream changes with the timeline (ordered chapters).
     bool under_timeline;
 
-    // NULL if not backed by a demuxer (e.g. external subtitles).
     // Value can change if under_timeline==true.
     struct demuxer *demuxer;
-    // Invariant: (!demuxer && !stream) || stream->demuxer == demuxer
+    // Invariant: !stream || stream->demuxer == demuxer
     struct sh_stream *stream;
 
     // For external subtitles, which are read fully on init. Do not attempt
@@ -248,7 +248,7 @@ typedef struct MPContext {
 
     double mouse_timer;
     unsigned int mouse_event_ts;
-    int mouse_waiting_hide;
+    bool mouse_cursor_visible;
 
     // used to prevent hanging in some error cases
     double start_timestamp;
@@ -306,7 +306,7 @@ extern int forced_subs_only;
 void uninit_player(struct MPContext *mpctx, unsigned int mask);
 void reinit_audio_chain(struct MPContext *mpctx);
 double playing_audio_pts(struct MPContext *mpctx);
-struct track *mp_add_subtitles(struct MPContext *mpctx, char *filename, int noerr);
+struct track *mp_add_subtitles(struct MPContext *mpctx, char *filename);
 int reinit_video_chain(struct MPContext *mpctx);
 int reinit_video_filters(struct MPContext *mpctx);
 int reinit_audio_filters(struct MPContext *mpctx);

@@ -722,21 +722,12 @@ static struct mp_cmd *queue_peek(struct cmd_queue *queue)
     return ret;
 }
 
-static void queue_add_or_coalesce_tail(struct cmd_queue *queue,
-                                       struct mp_cmd *cmd)
+static struct mp_cmd *queue_peek_tail(struct cmd_queue *queue)
 {
-    if (cmd->mouse_move) {
-        struct mp_cmd **p_prev = &queue->first;
-        while (*p_prev)
-            p_prev = &(*p_prev)->queue_next;
-        if (*p_prev && (*p_prev)->mouse_move) {
-            talloc_free(*p_prev);
-            *p_prev = cmd;
-            cmd->queue_next = NULL;
-            return;
-        }
-    }
-    queue_add_tail(queue, cmd);
+    struct mp_cmd *cur = queue->first;
+    while (cur && cur->queue_next)
+        cur = cur->queue_next;
+    return cur;
 }
 
 static struct input_fd *mp_input_add_fd(struct input_ctx *ictx)
@@ -1425,6 +1416,7 @@ static void update_mouse_section(struct input_ctx *ictx)
             get_cmd_from_keys(ictx, old, 1, (int[]){MP_KEY_MOUSE_LEAVE});
         if (cmd)
             queue_add_tail(&ictx->cmd_queue, cmd);
+        ictx->got_new_events = true;
     }
 }
 
@@ -1433,6 +1425,7 @@ static void release_down_cmd(struct input_ctx *ictx)
     if (ictx->current_down_cmd && ictx->current_down_cmd->key_up_follows) {
         ictx->current_down_cmd->key_up_follows = false;
         queue_add_tail(&ictx->cmd_queue, ictx->current_down_cmd);
+        ictx->got_new_events = true;
     } else {
         talloc_free(ictx->current_down_cmd);
     }
@@ -1586,38 +1579,8 @@ static void interpret_key(struct input_ctx *ictx, int code, double scale)
     queue_add_tail(&ictx->cmd_queue, cmd);
 }
 
-static mp_cmd_t *check_autorepeat(struct input_ctx *ictx)
+static void mp_input_feed_key(struct input_ctx *ictx, int code, double scale)
 {
-    // No input : autorepeat ?
-    if (ictx->ar_rate > 0 && ictx->ar_state >= 0 && ictx->num_key_down > 0
-        && !(ictx->key_down[ictx->num_key_down - 1] & MP_NO_REPEAT_KEY)) {
-        int64_t t = mp_time_us();
-        if (ictx->last_ar + 2000000 < t)
-            ictx->last_ar = t;
-        // First time : wait delay
-        if (ictx->ar_state == 0
-            && (t - ictx->last_key_down) >= ictx->ar_delay * 1000)
-        {
-            if (!ictx->current_down_cmd) {
-                ictx->ar_state = -1;
-                return NULL;
-            }
-            ictx->ar_state = 1;
-            ictx->last_ar = ictx->last_key_down + ictx->ar_delay * 1000;
-            return mp_cmd_clone(ictx->current_down_cmd);
-            // Then send rate / sec event
-        } else if (ictx->ar_state == 1
-                   && (t - ictx->last_ar) >= 1000000 / ictx->ar_rate) {
-            ictx->last_ar += 1000000 / ictx->ar_rate;
-            return mp_cmd_clone(ictx->current_down_cmd);
-        }
-    }
-    return NULL;
-}
-
-static void mp_input_feed_key(struct input_ctx *ictx, int code)
-{
-    ictx->got_new_events = true;
     if (code == MP_INPUT_RELEASE_ALL) {
         mp_msg(MSGT_INPUT, MSGL_DBG2, "input: release all\n");
         ictx->num_key_down = 0;
@@ -1625,32 +1588,30 @@ static void mp_input_feed_key(struct input_ctx *ictx, int code)
         update_mouse_section(ictx);
         return;
     }
-    interpret_key(ictx, code, 1);
-}
-
-void mp_input_put_key(struct input_ctx *ictx, int code)
-{
-    input_lock(ictx);
     double now = mp_time_sec();
     int doubleclick_time = ictx->doubleclick_time;
     // ignore system-doubleclick if we generate these events ourselves
     int unmod = code & ~MP_KEY_MODIFIER_MASK;
-    if (doubleclick_time && MP_KEY_IS_MOUSE_BTN_DBL(unmod)) {
-        input_unlock(ictx);
+    if (doubleclick_time && MP_KEY_IS_MOUSE_BTN_DBL(unmod))
         return;
-    }
-    mp_input_feed_key(ictx, code);
+    interpret_key(ictx, code, scale);
     if (code & MP_KEY_STATE_DOWN) {
         code &= ~MP_KEY_STATE_DOWN;
         if (ictx->last_doubleclick_key_down == code
             && now - ictx->last_doubleclick_time < doubleclick_time / 1000.0)
         {
             if (code >= MP_MOUSE_BTN0 && code <= MP_MOUSE_BTN2)
-                mp_input_feed_key(ictx, code - MP_MOUSE_BTN0 + MP_MOUSE_BTN0_DBL);
+                interpret_key(ictx, code - MP_MOUSE_BTN0 + MP_MOUSE_BTN0_DBL, 1);
         }
         ictx->last_doubleclick_key_down = code;
         ictx->last_doubleclick_time = now;
     }
+}
+
+void mp_input_put_key(struct input_ctx *ictx, int code)
+{
+    input_lock(ictx);
+    mp_input_feed_key(ictx, code, 1);
     input_unlock(ictx);
 }
 
@@ -1667,7 +1628,7 @@ void mp_input_put_key_utf8(struct input_ctx *ictx, int mods, struct bstr t)
 void mp_input_put_axis(struct input_ctx *ictx, int direction, double value)
 {
     input_lock(ictx);
-    interpret_key(ictx, direction, value);
+    mp_input_feed_key(ictx, direction, value);
     input_unlock(ictx);
 }
 
@@ -1693,7 +1654,14 @@ void mp_input_set_mouse_pos(struct input_ctx *ictx, int x, int y)
         if (should_drop_cmd(ictx, cmd)) {
             talloc_free(cmd);
         } else {
-            queue_add_or_coalesce_tail(&ictx->cmd_queue, cmd);
+            // Coalesce with previous mouse move events (i.e. replace it)
+            struct mp_cmd *tail = queue_peek_tail(&ictx->cmd_queue);
+            if (tail && tail->mouse_move) {
+                queue_remove(&ictx->cmd_queue, tail);
+                talloc_free(tail);
+            }
+            queue_add_tail(&ictx->cmd_queue, cmd);
+            ictx->got_new_events = true;
         }
     }
     input_unlock(ictx);
@@ -1723,7 +1691,7 @@ static void read_key_fd(struct input_ctx *ictx, struct input_fd *key_fd)
 {
     int code = key_fd->read_key(key_fd->ctx, key_fd->fd);
     if (code >= 0 || code == MP_INPUT_RELEASE_ALL) {
-        mp_input_feed_key(ictx, code);
+        mp_input_feed_key(ictx, code, 1);
         return;
     }
 
@@ -1852,6 +1820,35 @@ int mp_input_queue_cmd(struct input_ctx *ictx, mp_cmd_t *cmd)
         queue_add_tail(&ictx->cmd_queue, cmd);
     input_unlock(ictx);
     return 1;
+}
+
+static mp_cmd_t *check_autorepeat(struct input_ctx *ictx)
+{
+    // No input : autorepeat ?
+    if (ictx->ar_rate > 0 && ictx->ar_state >= 0 && ictx->num_key_down > 0
+        && !(ictx->key_down[ictx->num_key_down - 1] & MP_NO_REPEAT_KEY)) {
+        int64_t t = mp_time_us();
+        if (ictx->last_ar + 2000000 < t)
+            ictx->last_ar = t;
+        // First time : wait delay
+        if (ictx->ar_state == 0
+            && (t - ictx->last_key_down) >= ictx->ar_delay * 1000)
+        {
+            if (!ictx->current_down_cmd) {
+                ictx->ar_state = -1;
+                return NULL;
+            }
+            ictx->ar_state = 1;
+            ictx->last_ar = ictx->last_key_down + ictx->ar_delay * 1000;
+            return mp_cmd_clone(ictx->current_down_cmd);
+            // Then send rate / sec event
+        } else if (ictx->ar_state == 1
+                   && (t - ictx->last_ar) >= 1000000 / ictx->ar_rate) {
+            ictx->last_ar += 1000000 / ictx->ar_rate;
+            return mp_cmd_clone(ictx->current_down_cmd);
+        }
+    }
+    return NULL;
 }
 
 /**

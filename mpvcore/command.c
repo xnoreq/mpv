@@ -391,10 +391,7 @@ static int mp_property_chapter(m_option_t *prop, int action, void *arg,
         *(int *) arg = chapter;
         return M_PROPERTY_OK;
     case M_PROPERTY_PRINT: {
-        char *chapter_name = chapter_display_name(mpctx, chapter);
-        if (!chapter_name)
-            return M_PROPERTY_UNAVAILABLE;
-        *(char **) arg = chapter_name;
+        *(char **) arg = chapter_display_name(mpctx, chapter);
         return M_PROPERTY_OK;
     }
     case M_PROPERTY_SWITCH:
@@ -405,8 +402,6 @@ static int mp_property_chapter(m_option_t *prop, int action, void *arg,
             step_all = ROUND(sarg->inc);
             // Check threshold for relative backward seeks
             if (mpctx->opts->chapter_seek_threshold >= 0 && step_all < 0) {
-                if (chapter < -1)
-                    return M_PROPERTY_UNAVAILABLE;
                 double current_chapter_start =
                     chapter_start_time(mpctx, chapter);
                 // If we are far enough into a chapter, seek back to the
@@ -1659,6 +1654,14 @@ static int mp_property_options(m_option_t *prop, int action, void *arg,
     case M_PROPERTY_GET:
         m_option_copy(opt->opt, ka->arg, opt->data);
         return M_PROPERTY_OK;
+    case M_PROPERTY_SET:
+        if (!(mpctx->initialized_flags & INITIALIZED_PLAYBACK) &&
+            !(opt->opt->flags & (M_OPT_PRE_PARSE | M_OPT_GLOBAL)))
+        {
+            m_option_copy(opt->opt, opt->data, ka->arg);
+            return M_PROPERTY_OK;
+        }
+        return M_PROPERTY_ERROR;
     case M_PROPERTY_GET_TYPE:
         *(struct m_option *)ka->arg = *opt->opt;
         return M_PROPERTY_OK;
@@ -2579,7 +2582,7 @@ void run_command(MPContext *mpctx, mp_cmd_t *cmd)
 
     case MP_CMD_SUB_ADD:
         if (sh_video) {
-            mp_add_subtitles(mpctx, cmd->args[0].v.s, 0);
+            mp_add_subtitles(mpctx, cmd->args[0].v.s);
         }
         break;
 
@@ -2594,7 +2597,7 @@ void run_command(MPContext *mpctx, mp_cmd_t *cmd)
         struct track *sub = mp_track_by_tid(mpctx, STREAM_SUB, cmd->args[0].v.i);
         if (sh_video && sub && sub->is_external && sub->external_filename)
         {
-            struct track *nsub = mp_add_subtitles(mpctx, sub->external_filename, 0);
+            struct track *nsub = mp_add_subtitles(mpctx, sub->external_filename);
             if (nsub) {
                 mp_remove_track(mpctx, sub);
                 mp_switch_track(mpctx, nsub->type, nsub);

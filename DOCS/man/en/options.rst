@@ -566,6 +566,11 @@
     ``no`` will disable cursor autohide. ``always`` means the cursor will stay
     hidden.
 
+``--cursor-autohide-fs-only``
+    If this option is given, the cursor is always visible in windowed mode. In
+    fullscreen mode, the cursor is shown or hidden according to
+    ``--cursor-autohide``.
+
 ``--audio-delay=<sec>``
     Audio delay in seconds (positive or negative float value). Negative values
     delay the audio, and positive values delay the video.
@@ -1254,13 +1259,10 @@
     1). A value of 1 means square pixels (correct for (almost?) all LCDs). See
     also ``--monitoraspect`` and ``--aspect``.
 
-``--mouse-movements``
+``--mouse-movements``, ``--no-mouse-movements``
     Permit mpv to receive pointer events reported by the video output
     driver. Necessary to select the buttons in DVD menus. Supported for
     X11-based VOs (x11, xv, etc) and the gl, direct3d and corevideo VOs.
-
-``--mouseinput``, ``--no-mouseinput``
-    ``--no-mouseinput`` disables mouse button press/release input.
 
 ``--no-msgcolor``
     Disable colorful console output on terminals.
