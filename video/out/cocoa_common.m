@@ -72,7 +72,6 @@ struct vo_cocoa_state {
     GLMPlayerWindow *window;
     GLMPlayerOpenGLView *view;
     NSOpenGLContext *glContext;
-    NSOpenGLPixelFormat *pixelFormat;
 
     NSSize current_video_size;
     NSSize previous_video_size;
@@ -345,37 +344,49 @@ static void create_window(struct vo *vo, uint32_t d_width, uint32_t d_height,
     }
 }
 
-static NSOpenGLPixelFormatAttribute get_nsopengl_profile(int gl3profile) {
+static CGLOpenGLProfile cgl_profile(int gl3profile) {
     if (gl3profile) {
-        return NSOpenGLProfileVersion3_2Core;
+        return kCGLOGLPVersion_3_2_Core;
     } else {
-        return NSOpenGLProfileVersionLegacy;
+        return kCGLOGLPVersion_Legacy;
     }
 }
 
 static int create_gl_context(struct vo *vo, int gl3profile)
 {
     struct vo_cocoa_state *s = vo->cocoa;
+    CGLError err;
+    int n = 0;
 
-    NSOpenGLPixelFormatAttribute attr[] = {
-        NSOpenGLPFAOpenGLProfile,
-        get_nsopengl_profile(gl3profile),
-        NSOpenGLPFADoubleBuffer,
-        0
-    };
+    CGLPixelFormatAttribute attrs[32];
+    attrs[n++] = kCGLPFAOpenGLProfile;
+    attrs[n++] = (CGLPixelFormatAttribute) cgl_profile(gl3profile);
+    attrs[n++] = kCGLPFADoubleBuffer;
+    attrs[n++] = kCGLPFAAccelerated;
 
-    s->pixelFormat =
-        [[[NSOpenGLPixelFormat alloc] initWithAttributes:attr] autorelease];
+    if (vo->opts->cgl_renderer > 0) {
+        attrs[n++] = kCGLPFARendererID;
+        attrs[n++] = vo->opts->cgl_renderer;
+    }
 
-    if (!s->pixelFormat) {
-        MP_ERR(s, "Trying to build invalid OpenGL pixel format\n");
+    attrs[n++] = 0;
+
+    CGLPixelFormatObj pix;
+    GLint npix;
+    if ((err = CGLChoosePixelFormat(attrs, &pix, &npix)) != kCGLNoError) {
+        MP_FATAL(s, "error creating CGL pixel format: %s (%d)\n",
+                 CGLErrorString(err), err);
         return -1;
     }
 
-    s->glContext =
-        [[NSOpenGLContext alloc] initWithFormat:s->pixelFormat
-                                   shareContext:nil];
+    CGLContextObj ctx;
+    if ((err = CGLCreateContext(pix, 0, &ctx)) != kCGLNoError) {
+        MP_FATAL(s, "error creating CGL context: %s (%d)\n",
+                 CGLErrorString(err), err);
+        return -1;
+    }
 
+    s->glContext = [[NSOpenGLContext alloc] initWithCGLContextObj:ctx];
     [s->glContext makeCurrentContext];
 
     return 0;

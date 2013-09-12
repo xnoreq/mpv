@@ -562,6 +562,23 @@ const m_option_t mp_opts[] = {
                 {"yes", 1}, {"", 1})),
     OPT_FLAG("gapless-audio", gapless_audio, 0),
 
+#ifdef CONFIG_COCOA
+#include <OpenGL/CGLRenderers.h>
+#ifndef kCGLRendererIntelHD5000ID
+#define kCGLRendererIntelHD5000ID 0x00024500
+#endif
+
+    OPT_CHOICE("cgl-renderer", vo.cgl_renderer, M_OPT_OPTIONAL_PARAM,
+               ({"auto",                 -1},
+                { "ati-raedon-x2000",    kCGLRendererATIRadeonX2000ID },
+                { "ati-raedon-x3000",    kCGLRendererATIRadeonX3000ID },
+                { "nvidia-geforce8xxxx", kCGLRendererGeForce8xxxID },
+                { "intel-x3100",         kCGLRendererIntelHDID },
+                { "intel-hd",            kCGLRendererIntelHDID },
+                { "intel-hd4000",        kCGLRendererIntelHD4000ID },
+                { "intel-hd5000",        kCGLRendererIntelHD5000ID })),
+#endif
+
     // set screen dimensions (when not detectable or virtual!=visible)
     OPT_INTRANGE("screenw", vo.screenwidth, CONF_GLOBAL, 0, 4096),
     OPT_INTRANGE("screenh", vo.screenheight, CONF_GLOBAL, 0, 4096),
