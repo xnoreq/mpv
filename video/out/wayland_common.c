@@ -1,23 +1,21 @@
 /*
- * This file is part of MPlayer.
+ * This file is part of mpv video player.
  * Copyright © 2008 Kristian Høgsberg
  * Copyright © 2012-2013 Collabora, Ltd.
- * Copyright © 2012-2013 Scott Moreau <oreaus@gmail.com>
- * Copyright © 2012-2013 Alexander Preisinger <alexander.preisinger@gmail.com>
+ * Copyright © 2013 Alexander Preisinger <alexander.preisinger@gmail.com>
  *
- * MPlayer is free software; you can redistribute it and/or modify
+ * mpv is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
  *
- * MPlayer is distributed in the hope that it will be useful,
+ * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along
- * with MPlayer; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stdio.h>
@@ -220,13 +218,13 @@ static void keyboard_handle_keymap(void *data,
     close(fd);
 
     if (!wl->input.xkb.keymap) {
-        MP_ERR(wl->vo, "failed to compile keymap\n");
+        MP_ERR(wl, "failed to compile keymap\n");
         return;
     }
 
     wl->input.xkb.state = xkb_state_new(wl->input.xkb.keymap);
     if (!wl->input.xkb.state) {
-        MP_ERR(wl->vo, "failed to create XKB state\n");
+        MP_ERR(wl, "failed to create XKB state\n");
         xkb_map_unref(wl->input.xkb.keymap);
         wl->input.xkb.keymap = NULL;
         return;
@@ -594,8 +592,11 @@ static bool create_display (struct vo_wayland_state *wl)
 {
     wl->display.display = wl_display_connect(NULL);
 
-    if (!wl->display.display)
+    if (!wl->display.display) {
+        MP_ERR(wl->vo, "failed to connect to a wayland server: "
+                       "check if a wayland compositor is running\n");
         return false;
+    }
 
     wl_list_init(&wl->display.output_list);
     wl->display.registry = wl_display_get_registry(wl->display.display);
@@ -628,7 +629,7 @@ static bool create_window (struct vo_wayland_state *wl)
                                                           wl->window.surface);
 
     if (!wl->window.shell_surface) {
-        MP_ERR(wl->vo, "creating shell surface failed\n");
+        MP_ERR(wl, "creating shell surface failed\n");
         return false;
     }
 
@@ -649,8 +650,10 @@ static void destroy_window (struct vo_wayland_state *wl)
 
 static bool create_cursor (struct vo_wayland_state *wl)
 {
-    if (!wl->display.shm)
+    if (!wl->display.shm) {
+        MP_ERR(wl->vo, "no shm interface available\n");
         return false;
+    }
 
     wl->cursor.surface =
         wl_compositor_create_surface(wl->display.compositor);
@@ -678,7 +681,7 @@ static bool create_input (struct vo_wayland_state *wl)
     wl->input.xkb.context = xkb_context_new(0);
 
     if (!wl->input.xkb.context) {
-        MP_ERR(wl->vo, "failed to initialize input\n");
+        MP_ERR(wl, "failed to initialize input: check xkbcommon\n");
         return false;
     }
 
@@ -709,13 +712,13 @@ int vo_wayland_init (struct vo *vo)
     vo->wayland = talloc_zero(NULL, struct vo_wayland_state);
     struct vo_wayland_state *wl = vo->wayland;
     wl->vo = vo;
+    wl->log = mp_log_new(wl, vo->log, "wayland");
 
     if (!create_input(wl)
         || !create_display(wl)
         || !create_window(wl)
         || !create_cursor(wl))
     {
-        MP_ERR(wl->vo, "failed to initialize backend\n");
         return false;
     }
 
@@ -765,7 +768,7 @@ static void vo_wayland_fullscreen (struct vo *vo)
     struct wl_output *fs_output = wl->display.fs_output;
 
     if (vo->opts->fullscreen) {
-        MP_VERBOSE(wl->vo, "going fullscreen\n");
+        MP_DBG(wl, "going fullscreen\n");
         wl->window.p_width = wl->window.width;
         wl->window.p_height = wl->window.height;
         wl_shell_surface_set_fullscreen(wl->window.shell_surface,
@@ -774,7 +777,7 @@ static void vo_wayland_fullscreen (struct vo *vo)
     }
 
     else {
-        MP_VERBOSE(wl->vo, "leaving fullscreen\n");
+        MP_DBG(wl, "leaving fullscreen\n");
         wl_shell_surface_set_toplevel(wl->window.shell_surface);
         shedule_resize(wl, 0, wl->window.p_width, wl->window.p_height);
     }
@@ -801,7 +804,7 @@ static int vo_wayland_check_events (struct vo *vo)
      * are events to read from the file descriptor through poll */
     if (poll(&fd, 1, 0) > 0) {
         if (fd.revents & POLLERR || fd.revents & POLLHUP)
-            MP_ERR(wl->vo, "error occurred on the display fd\n");
+            MP_ERR(wl, "error occurred on the display fd\n");
         if (fd.revents & POLLIN)
             wl_display_dispatch(dp);
         if (fd.revents & POLLOUT)
@@ -844,7 +847,7 @@ static void vo_wayland_update_screeninfo (struct vo *vo)
     }
 
     if (!mode_received) {
-        MP_ERR(wl->vo, "no output mode detected\n");
+        MP_ERR(wl, "no output mode detected\n");
         return;
     }
 

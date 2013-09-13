@@ -154,13 +154,15 @@
 const char mp_help_text[] = _(
 "Usage:   mpv [options] [url|path/]filename\n"
 "\n"
-"Basic options: (complete list in the man page)\n"
+"Basic options:\n"
 " --start=<time>    seek to given (percent, seconds, or hh:mm:ss) position\n"
 " --no-audio        do not play sound\n"
 " --no-video        do not play video\n"
 " --fs              fullscreen playback\n"
 " --sub=<file>      specify subtitle file to use\n"
 " --playlist=<file> specify playlist file\n"
+"\n"
+" --list-options    list all mpv options\n"
 "\n");
 
 static const char av_desync_help_text[] = _(
@@ -844,6 +846,9 @@ static const char *backup_properties[] = {
     "contrast",
     "saturation",
     "hue",
+    "deinterlace",
+    "vf",
+    "af",
     "panscan",
     "aid",
     "vid",
@@ -875,6 +880,8 @@ void mp_write_watch_later_conf(struct MPContext *mpctx)
     talloc_steal(tmp, conffile);
     if (!conffile)
         goto exit;
+
+    mp_msg(MSGT_CPLAYER, MSGL_INFO, "Saving state.\n");
 
     FILE *file = fopen(conffile, "wb");
     if (!file)
@@ -2452,6 +2459,7 @@ int reinit_video_chain(struct MPContext *mpctx)
     sh_video->last_pts = MP_NOPTS_VALUE;
     sh_video->num_buffered_pts = 0;
     sh_video->next_frame_time = 0;
+    mpctx->last_vf_reconfig_count = 0;
     mpctx->restart_playback = true;
     mpctx->sync_audio_to_video = !sh_video->gsh->attached_picture;
     mpctx->delay = 0;
@@ -2538,9 +2546,34 @@ static bool load_next_vo_frame(struct MPContext *mpctx, bool eof)
     return false;
 }
 
+static void init_filter_params(struct MPContext *mpctx)
+{
+    struct MPOpts *opts = mpctx->opts;
+    struct sh_video *sh_video = mpctx->sh_video;
+
+    // Note that the video decoder already initializes the filter chain. This
+    // might recreate the chain a second time, which is not very elegant, but
+    // allows us to test whether enabling deinterlacing works with the current
+    // video format and other filters.
+    if (sh_video->vf_initialized != 1)
+        return;
+
+    if (sh_video->vf_reconfig_count <= mpctx->last_vf_reconfig_count) {
+        if (opts->deinterlace >= 0) {
+            mp_property_do("deinterlace", M_PROPERTY_SET, &opts->deinterlace,
+                           mpctx);
+        }
+    }
+    // Setting filter params has to be "stable" (no change if params already
+    // set) - checking the reconfig count is just an optimization.
+    mpctx->last_vf_reconfig_count = sh_video->vf_reconfig_count;
+}
+
 static void filter_video(struct MPContext *mpctx, struct mp_image *frame)
 {
     struct sh_video *sh_video = mpctx->sh_video;
+
+    init_filter_params(mpctx);
 
     frame->pts = sh_video->pts;
     mp_image_set_params(frame, sh_video->vf_input);
@@ -3397,8 +3430,6 @@ static void handle_cursor_autohide(struct MPContext *mpctx)
         return;
 
     bool mouse_cursor_visible = mpctx->mouse_cursor_visible;
-    if (opts->cursor_autohide_delay == -1)
-        mouse_cursor_visible = true;
 
     unsigned mouse_event_ts = mp_input_get_mouse_event_counter(mpctx->input);
     if (mpctx->mouse_event_ts != mouse_event_ts) {
@@ -4001,7 +4032,7 @@ static int read_keys(void *ctx, int fd)
 
 static void init_input(struct MPContext *mpctx)
 {
-    mpctx->input = mp_input_init(mpctx->opts);
+    mpctx->input = mp_input_init(mpctx->global);
     if (mpctx->opts->slave_mode)
         mp_input_add_cmd_fd(mpctx->input, 0, USE_FD0_CMD_SELECT, MP_INPUT_SLAVE_CMD_FUNC, NULL);
     else if (mpctx->opts->consolecontrols)
@@ -4185,6 +4216,36 @@ static struct mp_resolve_result *resolve_url(const char *filename,
 #endif
 }
 
+static void print_resolve_contents(struct mp_log *log,
+                                   struct mp_resolve_result *res)
+{
+    mp_msg_log(log, MSGL_V, "Resolve:\n");
+    mp_msg_log(log, MSGL_V, "  title: %s\n", res->title);
+    mp_msg_log(log, MSGL_V, "  url: %s\n", res->url);
+    for (int n = 0; n < res->num_srcs; n++) {
+        mp_msg_log(log, MSGL_V, "  source %d:\n", n);
+        if (res->srcs[n]->url)
+            mp_msg_log(log, MSGL_V, "    url: %s\n", res->srcs[n]->url);
+        if (res->srcs[n]->encid)
+            mp_msg_log(log, MSGL_V, "    encid: %s\n", res->srcs[n]->encid);
+    }
+    for (int n = 0; n < res->num_subs; n++) {
+        mp_msg_log(log, MSGL_V, "  subtitle %d:\n", n);
+        if (res->subs[n]->url)
+            mp_msg_log(log, MSGL_V, "    url: %s\n", res->subs[n]->url);
+        if (res->subs[n]->lang)
+            mp_msg_log(log, MSGL_V, "    lang: %s\n", res->subs[n]->lang);
+        if (res->subs[n]->data) {
+            mp_msg_log(log, MSGL_V, "    data: %d bytes\n",
+                       strlen(res->subs[n]->data));
+        }
+    }
+    if (res->playlist) {
+        mp_msg_log(log, MSGL_V, "  playlist with %d entries\n",
+                   playlist_entry_count(res->playlist));
+    }
+}
+
 // Waiting for the slave master to send us a new file to play.
 static void idle_loop(struct MPContext *mpctx)
 {
@@ -4318,7 +4379,7 @@ static void play_current_file(struct MPContext *mpctx)
         ass_set_style_overrides(mpctx->ass_library, opts->ass_force_style_list);
 #endif
 
-    mp_tmsg(MSGT_CPLAYER, MSGL_INFO, "Playing %s.\n", mpctx->filename);
+    mp_tmsg(MSGT_CPLAYER, MSGL_INFO, "Playing: %s\n", mpctx->filename);
 
     //============ Open & Sync STREAM --- fork cache2 ====================
 
@@ -4331,6 +4392,7 @@ static void play_current_file(struct MPContext *mpctx)
     char *stream_filename = mpctx->filename;
     mpctx->resolve_result = resolve_url(stream_filename, opts);
     if (mpctx->resolve_result) {
+        print_resolve_contents(mpctx->log, mpctx->resolve_result);
         if (mpctx->resolve_result->playlist) {
             transfer_playlist(mpctx, mpctx->resolve_result->playlist);
             goto terminate_playback;
@@ -4575,7 +4637,8 @@ terminate_playback:  // don't jump here after ao/vo/getch initialization!
     uninit_player(mpctx, uninitialize_parts);
 
     // xxx handle this as INITIALIZED_CONFIG?
-    m_config_restore_backups(mpctx->mconfig);
+    if (mpctx->stop_play != PT_RESTART)
+        m_config_restore_backups(mpctx->mconfig);
 
     mpctx->filename = NULL;
     talloc_free(mpctx->resolve_result);

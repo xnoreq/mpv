@@ -41,6 +41,13 @@
 
 #define MAX_BUFFERS 2
 
+// minium target version for the new formats (1.2.90)
+#define MINIMUM_VERSION (1 << 16 | 2 << 8 | 90)
+
+#define CURRENT_VERSION (WAYLAND_VERSION_MAJOR << 16 | \
+                         WAYLAND_VERSION_MINOR << 8  | \
+                         WAYLAND_VERSION_MICRO)
+
 static void draw_image(struct vo *vo, mp_image_t *mpi);
 
 static const struct wl_callback_listener frame_listener;
@@ -58,9 +65,7 @@ struct fmtentry {
 static const struct fmtentry fmttable[] = {
     {WL_SHM_FORMAT_ARGB8888, IMGFMT_BGRA}, // 8b 8g 8r 8a
     {WL_SHM_FORMAT_XRGB8888, IMGFMT_BGR0},
-#if (WAYLAND_VERSION_MAJOR >= 1) \
- && (WAYLAND_VERSION_MINOR >= 2) \
- && (WAYLAND_VERSION_MICRO >= 90)
+#if CURRENT_VERSION >= MINIMUM_VERSION
     {WL_SHM_FORMAT_RGB332,   IMGFMT_BGR8}, // 3b 3g 2r
     {WL_SHM_FORMAT_BGR233,   IMGFMT_RGB8}, // 3r 3g 3b,
     {WL_SHM_FORMAT_XRGB4444, IMGFMT_BGR12_LE}, // 4b 4g 4r 4a
@@ -133,10 +138,14 @@ struct priv {
     struct buffer buffers[MAX_BUFFERS];
     struct buffer *front_buffer;
     struct buffer *back_buffer;
+    struct buffer tmp_buffer;
 
     struct mp_image *original_image;
     int width;  // width of the original image
     int height;
+
+    int x, y; // coords for resizing
+    bool resize_attach;
 
     // options
     int enable_alpha;
@@ -295,13 +304,13 @@ static bool create_shm_buffer(struct priv *p,
 
     fd = os_create_anonymous_file(size);
     if (fd < 0) {
-        MP_ERR(p->vo, "creating a buffer file for %d B failed: %m", size);
+        MP_ERR(p->wl, "creating a buffer file for %d B failed: %m", size);
         return false;
     }
 
     data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (data == MAP_FAILED) {
-        MP_ERR(p->vo, "mmap failed: %m\n");
+        MP_ERR(p->wl, "mmap failed: %m\n");
         close(fd);
         return false;
     }
@@ -364,6 +373,13 @@ static mp_image_t *get_screenshot(struct priv *p)
 static bool resize(struct priv *p)
 {
     struct vo_wayland_state *wl = p->wl;
+
+    // if the newly resized buffer isn't attached, then don't resize again,
+    // because the front buffer might be empty and the temporary buffer might
+    // still be valid
+    if (p->resize_attach)
+        return false;
+
     int32_t x = wl->window.sh_x;
     int32_t y = wl->window.sh_y;
     wl->vo->dwidth = wl->window.sh_width;
@@ -375,10 +391,10 @@ static bool resize(struct priv *p)
     p->dst_w = p->dst.x1 - p->dst.x0;
     p->dst_h = p->dst.y1 - p->dst.y0;
 
-    MP_DBG(p->vo, "resizing %dx%d -> %dx%d\n", wl->window.width,
-                                               wl->window.height,
-                                               p->dst_w,
-                                               p->dst_h);
+    MP_DBG(wl, "resizing %dx%d -> %dx%d\n", wl->window.width,
+                                            wl->window.height,
+                                            p->dst_w,
+                                            p->dst_h);
 
     if (x != 0)
         x = wl->window.width - p->dst_w;
@@ -401,8 +417,13 @@ static bool resize(struct priv *p)
     if (mp_sws_reinit(p->sws) < 0)
         return false;
 
+    // copy pointers
+    p->tmp_buffer = *p->front_buffer;
+    p->front_buffer->shm_data = NULL;
+    p->front_buffer->wlbuf = NULL;
+
     if (!reinit_shm_buffers(p, p->dst_w, p->dst_h)) {
-        MP_ERR(p->vo, "failed to resize buffers\n");
+        MP_ERR(wl, "failed to resize buffers\n");
         return false;
     }
 
@@ -419,11 +440,9 @@ static bool resize(struct priv *p)
         wl_region_destroy(opaque);
     }
 
-    // a redraw should happen at this point
-    wl_surface_attach(wl->window.surface, p->front_buffer->wlbuf, x, y);
-    wl_surface_damage(wl->window.surface, 0, 0, p->dst_w, p->dst_h);
-    wl_surface_commit(wl->window.surface);
-
+    p->x = x;
+    p->y = y;
+    p->resize_attach = true;
     p->wl->window.events = 0;
     p->vo->want_redraw = true;
     return true;
@@ -450,6 +469,26 @@ static void frame_handle_redraw(void *data,
     struct vo_wayland_state *wl = p->wl;
     struct buffer *buf = buffer_get_front(p);
 
+    if (p->resize_attach) {
+        wl_surface_attach(wl->window.surface, buf->wlbuf, p->x, p->y);
+        wl_surface_damage(wl->window.surface, 0, 0, p->dst_w, p->dst_h);
+        wl_surface_commit(wl->window.surface);
+
+        if (callback)
+            wl_callback_destroy(callback);
+
+        p->redraw_callback = NULL;
+        buffer_finalise_front(p);
+        p->resize_attach = false;
+
+        destroy_shm_buffer(&p->tmp_buffer);
+
+        // I have to destroy the callback and return early to avoid black flickers
+        // I don't exactly know why this, but I guess the back buffer is still
+        // empty. The callback loop will be restored on the next flip_page call
+        return;
+    }
+
     wl_surface_attach(wl->window.surface, buf->wlbuf, 0, 0);
     wl_surface_damage(wl->window.surface, 0, 0, p->dst_w, p->dst_h);
 
@@ -473,7 +512,7 @@ static void shm_handle_format(void *data,
     struct priv *p = data;
     for (int i = 0; i < MAX_FORMAT_ENTRIES; ++i) {
         if (fmttable[i].wl_fmt == format) {
-            MP_INFO(p->vo, "format %s supported by hw\n",
+            MP_INFO(p->wl, "format %s supported by hw\n",
                     mp_imgfmt_to_name(fmttable[i].mp_fmt));
             struct supported_format *sf = talloc(p, struct supported_format);
             sf->fmt = &fmttable[i];
@@ -495,8 +534,10 @@ static void draw_image(struct vo *vo, mp_image_t *mpi)
     struct priv *p = vo->priv;
     struct buffer *buf = buffer_get_back(p);
 
-    if (!buf)
+    if (!buf) {
+        MP_WARN(p->wl, "can't draw, back buffer is busy\n");
         return;
+    }
 
     struct mp_image src = *mpi;
     struct mp_rect src_rc = p->src;
@@ -524,8 +565,10 @@ static void flip_page(struct vo *vo)
 
     buffer_swap(p);
 
-    if (!p->redraw_callback)
+    if (!p->redraw_callback) {
+        MP_INFO(p->wl, "restart frame callback\n");
         frame_handle_redraw(p, NULL, 0);
+    }
 }
 
 static int query_format(struct vo *vo, uint32_t format)
@@ -583,10 +626,10 @@ static int reconfig(struct vo *vo, struct mp_image_params *fmt, int flags)
 
 
     p->bytes_per_pixel = mp_imgfmt_get_desc(p->pref_format->mp_fmt).bytes[0];
-    MP_VERBOSE(vo, "bytes per pixel: %d\n", p->bytes_per_pixel);
+    MP_VERBOSE(p->wl, "bytes per pixel: %d\n", p->bytes_per_pixel);
 
     if (!reinit_shm_buffers(p, p->width, p->height)) {
-        MP_ERR(vo, "failed to initialise buffers\n");
+        MP_ERR(p->wl, "failed to initialise buffers\n");
         return -1;
     }
 
@@ -611,7 +654,7 @@ static int preinit(struct vo *vo)
     struct priv *p = vo->priv;
 
     if (!vo_wayland_init(vo)) {
-        MP_ERR(vo, "could not initalise backend\n");
+        MP_ERR(p->wl, "could not initalise backend\n");
         return -1;
     }
 

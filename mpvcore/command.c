@@ -498,17 +498,22 @@ static int mp_property_edition(m_option_t *prop, int action, void *arg,
 }
 
 static struct mp_resolve_src *find_source(struct mp_resolve_result *res,
-                                          char *url)
+                                          char *encid, char *url)
 {
     if (res->num_srcs == 0)
         return NULL;
 
     int src = 0;
     for (int n = 0; n < res->num_srcs; n++) {
-        if (strcmp(res->srcs[n]->url, res->url) == 0) {
+        char *s_url = res->srcs[n]->url;
+        char *s_encid = res->srcs[n]->encid;
+        if (url && s_url && strcmp(url, s_url) == 0) {
             src = n;
             break;
         }
+        // Prefer source URL if possible; so continue in case encid isn't unique
+        if (encid && s_encid && strcmp(encid, s_encid) == 0)
+            src = n;
     }
     return res->srcs[src];
 }
@@ -516,11 +521,12 @@ static struct mp_resolve_src *find_source(struct mp_resolve_result *res,
 static int mp_property_quvi_format(m_option_t *prop, int action, void *arg,
                                    MPContext *mpctx)
 {
+    struct MPOpts *opts = mpctx->opts;
     struct mp_resolve_result *res = mpctx->resolve_result;
     if (!res || !res->num_srcs)
         return M_PROPERTY_UNAVAILABLE;
 
-    struct mp_resolve_src *cur = find_source(res, res->url);
+    struct mp_resolve_src *cur = find_source(res, opts->quvi_format, res->url);
     if (!cur)
         return M_PROPERTY_UNAVAILABLE;
 
@@ -530,6 +536,13 @@ static int mp_property_quvi_format(m_option_t *prop, int action, void *arg,
         return M_PROPERTY_OK;
     case M_PROPERTY_SET: {
         mpctx->stop_play = PT_RESTART;
+        // Make it restart at the same position. This will have disastrous
+        // consequences if the stream is not arbitrarily seekable, but whatever.
+        m_config_backup_opt(mpctx->mconfig, "start");
+        opts->play_start = (struct m_rel_time) {
+            .type = REL_TIME_ABSOLUTE,
+            .pos = get_current_time(mpctx),
+        };
         break;
     }
     case M_PROPERTY_SWITCH: {
@@ -561,10 +574,10 @@ static int mp_property_titles(m_option_t *prop, int action, void *arg,
                               MPContext *mpctx)
 {
     struct demuxer *demuxer = mpctx->master_demuxer;
-    if (!demuxer)
+    unsigned int num_titles;
+    if (!demuxer || stream_control(demuxer->stream, STREAM_CTRL_GET_NUM_TITLES,
+                                   &num_titles) < 1)
         return M_PROPERTY_UNAVAILABLE;
-    int num_titles = 0;
-    stream_control(demuxer->stream, STREAM_CTRL_GET_NUM_TITLES, &num_titles);
     return m_property_int_ro(prop, action, arg, num_titles);
 }
 
@@ -638,39 +651,38 @@ static int mp_property_angle(m_option_t *prop, int action, void *arg,
     return M_PROPERTY_NOT_IMPLEMENTED;
 }
 
-/// Demuxer meta data
-static int mp_property_metadata(m_option_t *prop, int action, void *arg,
-                                MPContext *mpctx)
+static int tag_property(m_option_t *prop, int action, void *arg,
+                        struct mp_tags *tags)
 {
-    struct demuxer *demuxer = mpctx->master_demuxer;
-    if (!demuxer)
-        return M_PROPERTY_UNAVAILABLE;
-
     static const m_option_t key_type =
     {
-        "metadata", NULL, CONF_TYPE_STRING, 0, 0, 0, NULL
+        "tags", NULL, CONF_TYPE_STRING, 0, 0, 0, NULL
     };
 
     switch (action) {
     case M_PROPERTY_GET: {
         char **slist = NULL;
-        m_option_copy(prop, &slist, &demuxer->info);
+        int num = 0;
+        for (int n = 0; n < tags->num_keys; n++) {
+            MP_TARRAY_APPEND(NULL, slist, num, tags->keys[n]);
+            MP_TARRAY_APPEND(NULL, slist, num, tags->values[n]);
+        }
+        MP_TARRAY_APPEND(NULL, slist, num, NULL);
         *(char ***)arg = slist;
         return M_PROPERTY_OK;
     }
     case M_PROPERTY_PRINT: {
-        char **list = demuxer->info;
         char *res = NULL;
-        for (int n = 0; list && list[n]; n += 2) {
+        for (int n = 0; n < tags->num_keys; n++) {
             res = talloc_asprintf_append_buffer(res, "%s: %s\n",
-                                                list[n], list[n + 1]);
+                                                tags->keys[n], tags->values[n]);
         }
         *(char **)arg = res;
         return res ? M_PROPERTY_OK : M_PROPERTY_UNAVAILABLE;
     }
     case M_PROPERTY_KEY_ACTION: {
         struct m_property_action_arg *ka = arg;
-        char *meta = demux_info_get(demuxer, ka->key);
+        char *meta = mp_tags_get_str(tags, ka->key);
         if (!meta)
             return M_PROPERTY_UNKNOWN;
         switch (ka->action) {
@@ -684,6 +696,30 @@ static int mp_property_metadata(m_option_t *prop, int action, void *arg,
     }
     }
     return M_PROPERTY_NOT_IMPLEMENTED;
+}
+
+/// Demuxer meta data
+static int mp_property_metadata(m_option_t *prop, int action, void *arg,
+                                MPContext *mpctx)
+{
+    struct demuxer *demuxer = mpctx->master_demuxer;
+    if (!demuxer)
+        return M_PROPERTY_UNAVAILABLE;
+
+    return tag_property(prop, action, arg, demuxer->metadata);
+}
+
+static int mp_property_chapter_metadata(m_option_t *prop, int action, void *arg,
+                                        MPContext *mpctx)
+{
+    struct demuxer *demuxer = mpctx->master_demuxer;
+    int chapter = get_current_chapter(mpctx);
+    if (!demuxer || chapter < 0)
+        return M_PROPERTY_UNAVAILABLE;
+
+    assert(chapter < demuxer->num_chapters);
+
+    return tag_property(prop, action, arg, demuxer->chapters[chapter].metadata);
 }
 
 static int mp_property_pause(m_option_t *prop, int action, void *arg,
@@ -1121,10 +1157,13 @@ static void set_deinterlacing(struct MPContext *mpctx, bool enable)
         if (!enable)
             change_video_filters(mpctx, "del", VF_DEINTERLACE);
     } else {
-        int arg = enable;
-        if (vf->control(vf, VFCTRL_SET_DEINTERLACE, &arg) != CONTROL_OK)
-            change_video_filters(mpctx, "add", VF_DEINTERLACE);
+        if ((get_deinterlacing(mpctx) > 0) != enable) {
+            int arg = enable;
+            if (vf->control(vf, VFCTRL_SET_DEINTERLACE, &arg) != CONTROL_OK)
+                change_video_filters(mpctx, "add", VF_DEINTERLACE);
+        }
     }
+    mpctx->opts->deinterlace = get_deinterlacing(mpctx) > 0;
 }
 
 static int mp_property_deinterlace(m_option_t *prop, int action,
@@ -1733,8 +1772,8 @@ static const m_option_t mp_properties[] = {
       0, 0, 0, NULL },
     { "editions", mp_property_editions, CONF_TYPE_INT },
     { "angle", mp_property_angle, &m_option_type_dummy },
-    { "metadata", mp_property_metadata, CONF_TYPE_STRING_LIST,
-      0, 0, 0, NULL },
+    { "metadata", mp_property_metadata, CONF_TYPE_STRING_LIST },
+    { "chapter-metadata", mp_property_chapter_metadata, CONF_TYPE_STRING_LIST },
     M_OPTION_PROPERTY_CUSTOM("pause", mp_property_pause),
     { "cache", mp_property_cache, CONF_TYPE_INT },
     M_OPTION_PROPERTY("pts-association-mode"),

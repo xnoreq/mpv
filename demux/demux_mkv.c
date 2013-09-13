@@ -188,13 +188,16 @@ typedef struct mkv_demuxer {
 
     uint64_t skip_to_timecode;
     int v_skip_to_keyframe, a_skip_to_keyframe;
-    bool subtitle_preroll;
+    int subtitle_preroll;
 } mkv_demuxer_t;
 
 #define REALHEADER_SIZE    16
 #define RVPROPERTIES_SIZE  34
 #define RAPROPERTIES4_SIZE 56
 #define RAPROPERTIES5_SIZE 70
+
+// Maximum number of subtitle packets that are accepted for pre-roll.
+#define NUM_SUB_PREROLL_PACKETS 100
 
 /**
  * \brief ensures there is space for at least one additional element
@@ -369,7 +372,7 @@ static int demux_mkv_read_info(demuxer_t *demuxer)
                mkv_d->duration);
     }
     if (info.n_title) {
-        demux_info_add_bstr(demuxer, bstr0("title"), info.title);
+        demux_info_add_bstr(demuxer, bstr0("TITLE"), info.title);
     }
     if (info.n_segment_uid) {
         int len = info.segment_uid.len;
@@ -875,7 +878,8 @@ static int demux_mkv_read_chapters(struct demuxer *demuxer)
                    BSTR_P(name));
 
             if (idx == selected_edition){
-                demuxer_add_chapter(demuxer, name, chapter.start, chapter.end);
+                demuxer_add_chapter(demuxer, name, chapter.start, chapter.end,
+                                    ca->chapter_uid);
                 if (editions[idx].edition_flag_ordered) {
                     chapter.name = talloc_strndup(m_chapters, name.start,
                                                   name.len);
@@ -910,11 +914,21 @@ static int demux_mkv_read_tags(demuxer_t *demuxer)
     for (int i = 0; i < tags.n_tag; i++) {
         struct ebml_tag tag = tags.tag[i];
         if (tag.targets.target_track_uid  || tag.targets.target_edition_uid ||
-            tag.targets.target_chapter_uid || tag.targets.target_attachment_uid)
+            tag.targets.target_attachment_uid)
             continue;
 
-        for (int j = 0; j < tag.n_simple_tag; j++)
-            demux_info_add_bstr(demuxer, tag.simple_tag[j].tag_name, tag.simple_tag[j].tag_string);
+        if (tag.targets.target_chapter_uid) {
+            for (int j = 0; j < tag.n_simple_tag; j++) {
+                demuxer_add_chapter_info(demuxer, tag.targets.target_chapter_uid,
+                                         tag.simple_tag[j].tag_name,
+                                         tag.simple_tag[j].tag_string);
+            }
+        } else {
+            for (int j = 0; j < tag.n_simple_tag; j++) {
+                demux_info_add_bstr(demuxer, tag.simple_tag[j].tag_name,
+                                    tag.simple_tag[j].tag_string);
+            }
+        }
     }
 
     talloc_free(parse_ctx.talloc_ctx);
@@ -1153,6 +1167,7 @@ static const videocodec_info_t vinfo[] = {
     {MKV_V_VP8,       mmioFOURCC('V', 'P', '8', '0'), 0},
     {MKV_V_VP9,       mmioFOURCC('V', 'P', '9', '0'), 0},
     {MKV_V_DIRAC,     mmioFOURCC('d', 'r', 'a', 'c'), 0},
+    {MKV_V_PRORES,    mmioFOURCC('p', 'r', '0', '0'), 0},
     {NULL, 0, 0}
 };
 
@@ -2159,6 +2174,14 @@ static void mkv_parse_packet(mkv_track_t *track, bstr *buffer)
             buffer->len = size;
         }
 #endif
+    } else if (track->codec_id && strcmp(track->codec_id, MKV_V_PRORES) == 0) {
+        size_t newlen = buffer->len + 8;
+        char *data = talloc_size(NULL, newlen);
+        AV_WB32(data + 0, newlen);
+        AV_WB32(data + 4, MKBETAG('i', 'c', 'p', 'f'));
+        memcpy(data + 8, buffer->start, buffer->len);
+        buffer->start = data;
+        buffer->len = newlen;
     }
 }
 
@@ -2269,7 +2292,10 @@ static int handle_block(demuxer_t *demuxer, struct block_info *block_info)
         if (mkv_d->v_skip_to_keyframe)
             use_this_block = 0;
     } else if (track->type == MATROSKA_TRACK_SUBTITLE) {
-        use_this_block |= mkv_d->subtitle_preroll;
+        if (!use_this_block && mkv_d->subtitle_preroll) {
+            mkv_d->subtitle_preroll--;
+            use_this_block = 1;
+        }
         if (use_this_block) {
             if (laces > 1) {
                 mp_msg(MSGT_DEMUX, MSGL_WARN, "[mkv] Subtitles use Matroska "
@@ -2316,7 +2342,7 @@ static int handle_block(demuxer_t *demuxer, struct block_info *block_info)
         if (stream->type == STREAM_VIDEO) {
             mkv_d->v_skip_to_keyframe = 0;
             mkv_d->skip_to_timecode = 0;
-            mkv_d->subtitle_preroll = false;
+            mkv_d->subtitle_preroll = 0;
         } else if (stream->type == STREAM_AUDIO)
             mkv_d->a_skip_to_keyframe = 0;
 
@@ -2596,7 +2622,10 @@ static void demux_mkv_seek(demuxer_t *demuxer, float rel_seek_secs, int flags)
                 a_tnum = track->tnum;
         }
     }
-    mkv_d->subtitle_preroll = (flags & SEEK_SUBPREROLL) && st_active[STREAM_SUB];
+    mkv_d->subtitle_preroll = 0;
+    if ((flags & SEEK_SUBPREROLL) && st_active[STREAM_SUB] &&
+        st_active[STREAM_VIDEO])
+        mkv_d->subtitle_preroll = NUM_SUB_PREROLL_PACKETS;
     if (!(flags & (SEEK_BACKWARD | SEEK_FORWARD))) {
         if (flags & SEEK_ABSOLUTE || rel_seek_secs < 0)
             flags |= SEEK_BACKWARD;

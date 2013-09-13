@@ -1,22 +1,19 @@
 /*
- * MPlayer is free software; you can redistribute it and/or modify
+ * This file is part of mpv video player.
+ * Copyright © 2013 Alexander Preisinger <alexander.preisinger@gmail.com>
+ *
+ * mpv is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
  *
- * MPlayer is distributed in the hope that it will be useful,
+ * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along
- * with MPlayer; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * You can alternatively redistribute this file and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
+ * with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <wayland-egl.h>
@@ -52,7 +49,7 @@ static void egl_resize(struct vo_wayland_state *wl,
                                     &wl->window.width,
                                     &wl->window.height);
 
-    MP_DBG(wl->vo, "resizing %dx%d -> %dx%d\n", wl->window.width,
+    MP_VERBOSE(wl, "resizing %dx%d -> %dx%d\n", wl->window.width,
                                                 wl->window.height,
                                                 width,
                                                 height);
@@ -104,7 +101,7 @@ static bool egl_create_context(struct vo_wayland_state *wl,
     if (eglInitialize(egl_ctx->egl.dpy, &major, &minor) != EGL_TRUE)
         return false;
 
-    MP_VERBOSE(wl->vo, "EGL version %d.%d\n", major, minor);
+    MP_VERBOSE(wl, "EGL version %d.%d\n", major, minor);
 
     EGLint context_attribs[] = {
         EGL_CONTEXT_MAJOR_VERSION_KHR,
@@ -142,9 +139,10 @@ static bool egl_create_context(struct vo_wayland_state *wl,
 
     eglstr = eglQueryString(egl_ctx->egl.dpy, EGL_EXTENSIONS);
 
-    mpgl_load_functions(gl, (void*(*)(const GLubyte*))eglGetProcAddress, eglstr);
+    mpgl_load_functions(gl, (void*(*)(const GLubyte*))eglGetProcAddress, eglstr,
+                        wl->log);
     if (!gl->BindProgram)
-        mpgl_load_functions(gl, NULL, eglstr);
+        mpgl_load_functions(gl, NULL, eglstr, wl->log);
 
     return true;
 }

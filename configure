@@ -286,6 +286,7 @@ Installation directories:
   --datadir=DIR          directory for installing machine independent
                          data files (skins, etc) [PREFIX/share/mpv]
   --mandir=DIR           directory for installing man pages [PREFIX/share/man]
+  --docdir=DIR           directory for installing other docs [PREFIX/share/doc]
   --confdir=DIR          directory for installing configuration files
                          [PREFIX/etc/mpv]
   --localedir=DIR        directory for gettext locales [PREFIX/share/locale]
@@ -319,7 +320,6 @@ Optional features:
   --disable-bluray       disable Blu-ray support [autodetect]
   --disable-dvdread      disable libdvdread [autodetect]
   --disable-enca         disable ENCA charset oracle library [autodetect]
-  --enable-macosx-bundle enable Mac OS X bundle file locations [disabled]
   --disable-pthreads     disable Posix threads support [autodetect]
   --disable-libass       disable subtitle rendering with libass [autodetect]
   --disable-libass-osd   disable OSD rendering with libass [autodetect]
@@ -385,6 +385,7 @@ Miscellaneous options:
   --enable-static        build a statically linked binary
   --with-install=PATH    path to a custom install program
   --disable-manpage      do not build and install manpage [auto]
+  --disable-pdf          do not build and install PDF manual [auto]
   --disable-build-date   do not include binary compile time
 
 Advanced options:
@@ -482,7 +483,6 @@ _cdda=auto
 _coreaudio=auto
 _corevideo=auto
 _cocoa=auto
-_macosx_bundle=no
 _enca=auto
 _pthreads=auto
 _ass=auto
@@ -499,6 +499,7 @@ _priority=no
 def_dos_paths="#define HAVE_DOS_PATHS 0"
 def_priority="#undef CONFIG_PRIORITY"
 _build_man=auto
+_build_pdf=auto
 _build_date=yes
 for ac_option do
   case "$ac_option" in
@@ -513,6 +514,9 @@ for ac_option do
     ;;
   --mandir=*)
     _mandir=$(echo $ac_option | cut -d '=' -f 2)
+    ;;
+  --docdir=*)
+    _docdir=$(echo $ac_option | cut -d '=' -f 2)
     ;;
   --confdir=*)
     _confdir=$(echo $ac_option | cut -d '=' -f 2)
@@ -724,10 +728,11 @@ for ac_option do
   --disable-corevideo) _corevideo=no ;;
   --enable-cocoa) _cocoa=yes ;;
   --disable-cocoa) _cocoa=no ;;
-  --enable-macosx-bundle) _macosx_bundle=yes ;;
 
   --enable-manpage) _build_man=yes ;;
   --disable-manpage) _build_man=no ;;
+  --enable-pdf) _build_pdf=yes ;;
+  --disable-pdf) _build_pdf=no ;;
 
   --enable-build-date) _build_date=yes ;;
   --disable-build-date) _build_date=no ;;
@@ -742,6 +747,7 @@ done
 # Atmos: moved this here, to be correct, if --prefix is specified
 test -z "$_bindir"  && _bindir="$_prefix/bin"
 test -z "$_mandir"  && _mandir="$_prefix/share/man"
+test -z "$_docdir"  && _docdir="$_prefix/share/doc"
 test -z "$_confdir" && _confdir="$_prefix/etc/mpv"
 test -z "$_localedir"  && _localedir="$_prefix/share/locale"
 
@@ -934,6 +940,21 @@ else
     _build_man=no
 fi
 echores "$_build_man"
+
+_rst2latex=rst2latex
+if [ -f "$(which rst2latex.py)" ] ; then
+  _rst2latex=rst2latex.py
+fi
+
+echocheck "whether to build manual PDFs with rst2latex"
+if test "$_build_pdf" = auto ; then
+    _build_pdf=no
+    command_check "$_rst2latex" --version &&
+    command_check pdflatex -version && _build_pdf=yes
+else
+    _build_pdf=no
+fi
+echores "$_build_pdf"
 
 echocheck "whether to print binary build date"
 if test "$_build_date" = yes ; then
@@ -1561,19 +1582,6 @@ else
 fi
 echores "$_sys_sysinfo"
 
-
-if darwin; then
-
-echocheck "Mac OS X Bundle file locations"
-if test "$_macosx_bundle" = yes ; then
-  extra_ldflags="$extra_ldflags -headerpad_max_install_names"
-  def_macosx_bundle='#define CONFIG_MACOSX_BUNDLE 1'
-else
-  def_macosx_bundle='#undef CONFIG_MACOSX_BUNDLE'
-fi
-echores "$_macosx_bundle"
-
-fi #if darwin
 
 echocheck "pkg-config"
 if $($_pkg_config --version > /dev/null 2>&1); then
@@ -3183,6 +3191,7 @@ CONFIGURATION = $configuration
 prefix  = \$(DESTDIR)$_prefix
 BINDIR  = \$(DESTDIR)$_bindir
 MANDIR  = \$(DESTDIR)$_mandir
+DOCDIR  = \$(DESTDIR)$_docdir
 CONFDIR = \$(DESTDIR)$_confdir
 LOCALEDIR = \$(DESTDIR)$_localedir
 
@@ -3201,6 +3210,8 @@ GETCH = $_getch
 TIMER = $_timer
 RST2MAN = $_rst2man
 BUILD_MAN = $_build_man
+RST2LATEX = $_rst2latex
+BUILD_PDF = $_build_pdf
 
 EXESUF      = $_exesuf
 EXESUFS_ALL = .exe
@@ -3253,7 +3264,6 @@ LIBQUVI = $_libquvi4
 LIBQUVI9 = $_libquvi9
 LIBGUESS = $_libguess
 LIRC = $_lirc
-MACOSX_BUNDLE = $_macosx_bundle
 MNG = $_mng
 MPG123 = $_mpg123
 OPENAL = $_openal
@@ -3344,7 +3354,6 @@ $def_termios
 $def_dl
 $def_dos_paths
 $def_iconv
-$def_macosx_bundle
 $def_priority
 
 

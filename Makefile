@@ -44,8 +44,8 @@ SOURCES-$(LIBBS2B)              += audio/filter/af_bs2b.c
 SOURCES-$(LIBPOSTPROC)          += video/filter/vf_pp.c
 SOURCES-$(LIBSMBCLIENT)         += stream/stream_smb.c
 
-SOURCES-$(MACOSX_BUNDLE)        += osdep/macosx_bundle.m
 SOURCES-$(COCOA)                += video/out/cocoa_common.m \
+                                   osdep/macosx_bundle.m \
                                    osdep/macosx_application.m \
                                    osdep/macosx_events.m \
                                    osdep/ar/HIDRemote.m
@@ -292,10 +292,16 @@ ALL_TARGETS     += mpv$(EXESUF)
 INSTALL_BIN     += install-mpv
 INSTALL_BIN_STRIP += install-mpv-strip
 INSTALL_MAN      =
+INSTALL_PDF      =
 
 ifeq ($(BUILD_MAN),yes)
     INSTALL_MAN += install-mpv-man
     ALL_TARGETS += DOCS/man/en/mpv.1
+endif
+
+ifeq ($(BUILD_PDF),yes)
+    INSTALL_PDF += install-mpv-pdf
+    ALL_TARGETS += DOCS/man/en/mpv.pdf
 endif
 
 DIRS =  . \
@@ -303,11 +309,12 @@ DIRS =  . \
         audio/decode \
         audio/filter \
         audio/out \
-        core \
+        mpvcore \
         mpvcore/input \
         mpvcore/timeline \
         demux \
         osdep \
+        osdep/ar \
         stream \
         sub \
         video \
@@ -330,6 +337,12 @@ endif
 ###### generic rules #######
 
 all: $(ALL_TARGETS)
+
+%.tex: %.rst
+	$(RST2LATEX) --config=DOCS/man/docutils.conf $< $@
+
+%.pdf: %.tex
+	pdflatex -interaction=batchmode -jobname=$(basename $@) $<; pdflatex -interaction=batchmode -jobname=$(basename $@) $<
 
 %.1: %.rst
 	$(RST2MAN) $< $@
@@ -421,21 +434,20 @@ mpvcore/version.c osdep/mpv-rc.o: version.h
 
 osdep/mpv-rc.o: osdep/mpv.exe.manifest etc/mpv-icon.ico
 
-DOCS/man/en/mpv.1: DOCS/man/en/af.rst \
-                   DOCS/man/en/ao.rst \
-                   DOCS/man/en/changes.rst \
-                   DOCS/man/en/encode.rst \
-                   DOCS/man/en/input.rst \
-                   DOCS/man/en/options.rst \
-                   DOCS/man/en/vf.rst \
-                   DOCS/man/en/vo.rst
-
+DOCS/man/en/mpv.1 DOCS/man/en/mpv.pdf: DOCS/man/en/af.rst \
+                                       DOCS/man/en/ao.rst \
+                                       DOCS/man/en/changes.rst \
+                                       DOCS/man/en/encode.rst \
+                                       DOCS/man/en/input.rst \
+                                       DOCS/man/en/options.rst \
+                                       DOCS/man/en/vf.rst \
+                                       DOCS/man/en/vo.rst
 
 ###### installation / clean / generic rules #######
 
-install:               $(INSTALL_BIN)       $(INSTALL_MAN)
+install:               $(INSTALL_BIN)       $(INSTALL_MAN) $(INSTALL_PDF)
 install-no-man:        $(INSTALL_BIN)
-install-strip:         $(INSTALL_BIN_STRIP) $(INSTALL_MAN)
+install-strip:         $(INSTALL_BIN_STRIP) $(INSTALL_MAN) $(INSTALL_PDF)
 install-strip-no-man:  $(INSTALL_BIN_STRIP)
 
 install-dirs:
@@ -453,16 +465,24 @@ install-mpv-man-en: DOCS/man/en/mpv.1
 	if test ! -d $(MANDIR)/man1 ; then $(INSTALL) -d $(MANDIR)/man1 ; fi
 	$(INSTALL) -m 644 DOCS/man/en/mpv.1 $(MANDIR)/man1/
 
+install-mpv-pdf:  install-mpv-pdf-en
+
+install-mpv-pdf-en: DOCS/man/en/mpv.pdf
+	if test ! -d $(DOCDIR)/mpv ; then $(INSTALL) -d $(DOCDIR)/mpv ; fi
+	$(INSTALL) -m 644 DOCS/man/en/mpv.pdf $(DOCDIR)/mpv/
+
 uninstall:
 	$(RM) $(BINDIR)/mpv$(EXESUF)
 	$(RM) $(MANDIR)/man1/mpv.1
 	$(RM) $(MANDIR)/en/man1/mpv.1
+	$(RM) $(DOCDIR)/mpv/mpv.pdf
 
 clean:
 	-$(RM) $(call ADD_ALL_DIRS,/*.o /*.d /*.a /*.ho /*~)
 	-$(RM) $(call ADD_ALL_DIRS,/*.o /*.a /*.ho /*~)
 	-$(RM) $(call ADD_ALL_EXESUFS,mpv)
-	-$(RM) DOCS/man/en/mpv.1
+	-$(RM) $(call ADDSUFFIXES,.pdf .tex .log .aux .out .toc,DOCS/man/*/mpv)
+	-$(RM) DOCS/man/*/mpv.1
 	-$(RM) version.h
 	-$(RM) mpvcore/input/input_conf.h
 	-$(RM) video/out/vdpau_template.c
