@@ -111,11 +111,19 @@ typedef struct demuxer_desc {
     int (*control)(struct demuxer *demuxer, int cmd, void *arg);
 } demuxer_desc_t;
 
+struct mp_tags {
+    char **keys;
+    char **values;
+    int num_keys;
+};
+
 typedef struct demux_chapter
 {
     int original_index;
     uint64_t start, end;
     char *name;
+    struct mp_tags *metadata;
+    uint64_t demuxer_id; // for mapping to internal demuxer data structures
 } demux_chapter_t;
 
 struct matroska_data {
@@ -185,8 +193,9 @@ typedef struct demuxer {
     // If the file is a playlist file
     struct playlist *playlist;
 
+    struct mp_tags *metadata;
+
     void *priv;   // demuxer-specific internal data
-    char **info;  // metadata
     struct MPOpts *opts;
     struct demuxer_params *params;
 } demuxer_t;
@@ -246,7 +255,9 @@ void demuxer_help(void);
 int demuxer_add_attachment(struct demuxer *demuxer, struct bstr name,
                            struct bstr type, struct bstr data);
 int demuxer_add_chapter(struct demuxer *demuxer, struct bstr name,
-                        uint64_t start, uint64_t end);
+                        uint64_t start, uint64_t end, uint64_t demuxer_id);
+void demuxer_add_chapter_info(struct demuxer *demuxer, uint64_t demuxer_id,
+                              bstr key, bstr value);
 int demuxer_seek_chapter(struct demuxer *demuxer, int chapter,
                          double *seek_pts);
 void demuxer_sort_chapters(demuxer_t *demuxer);
@@ -281,5 +292,10 @@ void demux_packet_list_seek(struct demux_packet **pkts, int num_pkts,
 double demux_packet_list_duration(struct demux_packet **pkts, int num_pkts);
 struct demux_packet *demux_packet_list_fill(struct demux_packet **pkts,
                                             int num_pkts, int *current);
+
+void mp_tags_set_str(struct mp_tags *tags, const char *key, const char *value);
+void mp_tags_set_bstr(struct mp_tags *tags, bstr key, bstr value);
+char *mp_tags_get_str(struct mp_tags *tags, const char *key);
+char *mp_tags_get_bstr(struct mp_tags *tags, bstr key);
 
 #endif /* MPLAYER_DEMUXER_H */

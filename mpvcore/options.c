@@ -466,6 +466,11 @@ const m_option_t mp_opts[] = {
     OPT_SETTINGSLIST("af*", af_settings, 0, &af_obj_list),
     OPT_SETTINGSLIST("vf*", vf_settings, 0, &vf_obj_list),
 
+    OPT_CHOICE("deinterlace", deinterlace, M_OPT_OPTIONAL_PARAM,
+               ({"auto", -1},
+                {"no", 0},
+                {"yes", 1}, {"", 1})),
+
     OPT_STRING("ad", audio_decoders, 0),
     OPT_STRING("vd", video_decoders, 0),
 
@@ -609,8 +614,9 @@ const m_option_t mp_opts[] = {
                 {"limited", MP_CSP_LEVELS_TV},
                 {"full", MP_CSP_LEVELS_PC})),
 
-    OPT_CHOICE_OR_INT("cursor-autohide", vo.cursor_autohide_delay, 0,
+    OPT_CHOICE_OR_INT("cursor-autohide", cursor_autohide_delay, 0,
                       0, 30000, ({"no", -1}, {"always", -2})),
+    OPT_FLAG("cursor-autohide-fs-only", cursor_autohide_fs, 0),
     OPT_FLAG("stop-screensaver", stop_screensaver, 0),
 
     OPT_INT64("wid", vo.WinID, CONF_GLOBAL),
@@ -619,7 +625,6 @@ const m_option_t mp_opts[] = {
 #endif
     OPT_STRING("heartbeat-cmd", heartbeat_cmd, 0),
     OPT_FLOAT("heartbeat-interval", heartbeat_interval, CONF_MIN, 0),
-    OPT_FLAG_CONSTANTS("mouseinput", vo.nomouse_input, 0, 1, 0),
 
     OPT_CHOICE_OR_INT("screen", vo.screen_id, 0, 0, 32,
                       ({"default", -1})),
@@ -750,6 +755,7 @@ const struct MPOpts mp_default_opts = {
     .audio_driver_list = NULL,
     .audio_decoders = "-spdif:*", // never select spdif by default
     .video_decoders = NULL,
+    .deinterlace = -1,
     .fixed_vo = 1,
     .softvol = SOFTVOL_AUTO,
     .softvol_max = 200,
@@ -758,11 +764,9 @@ const struct MPOpts mp_default_opts = {
     .volstep = 3,
     .vo = {
         .video_driver_list = NULL,
-        .cursor_autohide_delay = 1000,
         .monitor_pixel_aspect = 1.0,
         .screen_id = -1,
         .fsscreen_id = -1,
-        .nomouse_input = 0,
         .enable_mouse_movements = 1,
         .fsmode = 0,
         .panscan = 0.0f,
@@ -773,6 +777,7 @@ const struct MPOpts mp_default_opts = {
     .wintitle = "mpv - ${media-title}",
     .heartbeat_interval = 30.0,
     .stop_screensaver = 1,
+    .cursor_autohide_delay = 1000,
     .gamma_gamma = 1000,
     .gamma_brightness = 1000,
     .gamma_contrast = 1000,

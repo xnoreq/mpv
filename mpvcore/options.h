@@ -32,9 +32,7 @@ typedef struct mp_vo_opts {
     int keepaspect;
     int border;
 
-    int nomouse_input;
     int enable_mouse_movements;
-    int cursor_autohide_delay;
 
     int64_t WinID;
 
@@ -72,6 +70,9 @@ typedef struct MPOpts {
     int gamma_hue;
 
     int stop_screensaver;
+    int cursor_autohide_delay;
+    int cursor_autohide_fs;
+
     int requested_colorspace;
     int requested_input_range;
     int requested_output_range;
@@ -170,6 +171,7 @@ typedef struct MPOpts {
     double playback_speed;
     struct m_obj_settings *vf_settings;
     struct m_obj_settings *af_settings;
+    int deinterlace;
     float movie_aspect;
     int flip;
     int field_dominance;
