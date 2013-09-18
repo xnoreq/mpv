@@ -16,24 +16,12 @@ local user_opts = {
     vidscale = true,                        -- scale the controller with the video?
     valign = 0.8,                           -- vertical alignment, -1 (top) to 1 (bottom)
     halign = 0,                             -- horizontal alignment, -1 (left) to 1 (right)
-    fadeduration = 100,                    -- duration of fade in/out in ms, 0 = no fade
+    fadeduration = 100,                     -- duration of fade in/out in ms, 0 = no fade
     deadzonedist = 0.15,                    -- distance between OSC and deadzone
     iAmAProgrammer = false,                 -- start counting stuff at 0 and disable OSC internal playlist management (and some functions that depend on it)
 }
 
 local osc_param = {
-    -- user-safe
-    --[[
-    scaleWindowed = 1,                        -- scaling of the controller when windowed
-    scaleFullscreen = 1,                            -- scaling of the controller when fullscreen
-    vidscale = true,                        -- scale the controller with the video?
-    valign = 0.8,                           -- vertical alignment, -1 (top) to 1 (bottom)
-    halign = 0,                             -- horizontal alignment, -1 (left) to 1 (right)
-    deadzonedist = 0.15,                    -- distance between OSC and deadzone
-    iAmAProgrammer = false,                 -- start counting stuff at 0 and disable OSC internal playlist management (and some functions that depend on it)
-    --]]
-
-    -- not user-safe
     osc_w = 550,                            -- width, height, corner-radius, padding of the OSC box
     osc_h = 138,
     osc_r = 10,
@@ -67,7 +55,7 @@ local state = {
     mouse_down_counter = 0,                 -- used for softrepeat
     active_element = nil,                   -- nil = none, 0 = background, 1+ = see elements[]
     active_event_source = nil,              -- the "button" that issued the current event
-    rightTC_trem = true,                    -- if the left timcode should display total or remaining time
+    rightTC_trem = true,                    -- if the right timcode should display total or remaining time
     tc_ms = false,                          -- Should the timecodes display their time with milliseconds
     mp_screen_sizeX, mp_screen_sizeY,       -- last screen-resolution, to detect resolution changes to issue reINITs
     initREQ = false,                        -- is a re-init request pending?
