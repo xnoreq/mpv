@@ -605,6 +605,18 @@ static int script_input_set_section_mouse_area(lua_State *L)
     return 0;
 }
 
+static int script_format_time(lua_State *L)
+{
+    double t = luaL_checknumber(L, 1);
+    const char *fmt = luaL_optstring(L, 2, "%H:%M:%S");
+    char *r = mp_format_time_fmt(fmt, t);
+    if (!r)
+        luaL_error(L, "Invalid time format string '%s'", fmt);
+    lua_pushstring(L, r);
+    talloc_free(r);
+    return 1;
+}
+
 struct fn_entry {
     const char *name;
     int (*fn)(lua_State *L);
@@ -628,6 +640,7 @@ static struct fn_entry fn_list[] = {
     FN_ENTRY(input_enable_section),
     FN_ENTRY(input_disable_section),
     FN_ENTRY(input_set_section_mouse_area),
+    FN_ENTRY(format_time),
 };
 
 // On stack: mp table
