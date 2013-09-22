@@ -53,6 +53,7 @@ typedef struct MPOpts {
     int softvol;
     float mixer_init_volume;
     int mixer_init_mute;
+    char *mixer_restore_volume_data;
     int volstep;
     float softvol_max;
     int gapless_audio;
@@ -99,6 +100,7 @@ typedef struct MPOpts {
     int stream_cache_def_size;
     float stream_cache_min_percent;
     float stream_cache_seek_min_percent;
+    int network_rtsp_transport;
     int stream_cache_pause;
     int chapterrange[2];
     int edition_id;

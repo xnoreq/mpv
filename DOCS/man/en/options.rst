@@ -989,7 +989,8 @@
 ``--heartbeat-cmd=<command>``
     Command that is executed every 30 seconds during playback via *system()* -
     i.e. using the shell. The time between the commands can be customized with
-    the ``--heartbeat-interval`` option.
+    the ``--heartbeat-interval`` option. The command is not run while playback
+    is paused.
 
     .. note::
 
@@ -1002,7 +1003,8 @@
     This can be "misused" to disable screensavers that do not support the
     proper X API (see also ``--stop-screensaver``). If you think this is too
     complicated, ask the author of the screensaver program to support the
-    proper X APIs.
+    proper X APIs. Note that the ``--stop-screensaver`` does not influence the
+    heartbeat code at all.
 
     .. admonition:: Example for xscreensaver
 
@@ -1777,6 +1779,11 @@
         - ``--reset-on-next-file=""``
           Do not reset pause mode.
 
+``--rtsp-transport=<lavf|udp|tcp|http>``
+    Select RTSP transport method (default: tcp). This selects the underlying
+    network transport when playing ``rtsp://...`` URLs. The value ``lavf``
+    leaves the decision to libavformat.
+
 ``--saturation=<-100-100>``
     Adjust the saturation of the video signal (default: 0). You can get
     grayscale output with this option. Not supported by all video output
@@ -1885,6 +1892,28 @@
             numbers would be more intuitive, but are not easily implementable
             because container formats usually use time stamps for identifying
             frames.)
+    ``%wX``
+        Specify the current playback time using the format string ``X``.
+        ``%p`` is like ``%wH:%wM:%wS``, and ``%P`` is like ``%wH:%wM:%wS.%wT``.
+
+        Valid format specifiers:
+            ``%wH``
+                hour (padded with 0 to two digits)
+            ``%wh``
+                hour (not padded)
+            ``%wM``
+                minutes (00-59)
+            ``%wm``
+                total minutes (includes hours, unlike ``%wM``)
+            ``%wS``
+                seconds (00-59)
+            ``%ws``
+                total seconds (includes hours and minutes)
+            ``%wf``
+                like ``%ws``, but as float
+            ``%wT``
+                milliseconds (000-999)
+
     ``%tX``
         Specify the current local date/time using the format ``X``. This format
         specifier uses the UNIX ``strftime()`` function internally, and inserts
@@ -2571,6 +2600,18 @@
 ``--volume=<-1-100>``
     Set the startup volume. A value of -1 (the default) will not change the
     volume. See also ``--softvol``.
+
+``--volume-restore-data=<string>``
+    Used internally for use by playback resume (e.g. with ``quit_watch_later``).
+    Restoring value has to be done carefully, because different AOs as well as
+    softvol can have different value ranges, and we don't want to restore
+    volume if setting the volume changes it system wide. The normal options
+    (like ``--volume``) would always set the volume. This option was added for
+    restoring volume in a safer way (by storing the method used to set the
+    volume), and is not generally useful. Its semantics are considered private
+    to mpv.
+
+    Do not use.
 
 ``--wid=<ID>``
     (X11 and Windows only)

@@ -445,18 +445,16 @@ static void uninit_subs(struct demuxer *demuxer)
 
 void uninit_player(struct MPContext *mpctx, unsigned int mask)
 {
-    struct MPOpts *opts = mpctx->opts;
-
     mask &= mpctx->initialized_flags;
 
     mp_msg(MSGT_CPLAYER, MSGL_DBG2, "\n*** uninit(0x%X)\n", mask);
 
     if (mask & INITIALIZED_ACODEC) {
         mpctx->initialized_flags &= ~INITIALIZED_ACODEC;
+        mixer_uninit_audio(mpctx->mixer);
         if (mpctx->sh_audio)
             uninit_audio(mpctx->sh_audio);
         cleanup_demux_stream(mpctx, STREAM_AUDIO);
-        mpctx->mixer.afilter = NULL;
     }
 
     if (mask & INITIALIZED_SUB) {
@@ -528,24 +526,8 @@ void uninit_player(struct MPContext *mpctx, unsigned int mask)
         getch2_disable();
     }
 
-    if (mask & INITIALIZED_VOL) {
-        mpctx->initialized_flags &= ~INITIALIZED_VOL;
-        if (mpctx->mixer.ao) {
-            // Normally the mixer remembers volume, but do it even if the
-            // volume is set explicitly with --volume=... (so that the same
-            // volume is restored on reinit)
-            if (opts->mixer_init_volume >= 0 && mpctx->mixer.user_set_volume)
-                mixer_getbothvolume(&mpctx->mixer, &opts->mixer_init_volume);
-            if (opts->mixer_init_mute >= 0 && mpctx->mixer.user_set_mute)
-                opts->mixer_init_mute = mixer_getmute(&mpctx->mixer);
-        }
-    }
-
     if (mask & INITIALIZED_AO) {
         mpctx->initialized_flags &= ~INITIALIZED_AO;
-        if (mpctx->mixer.ao)
-            mixer_uninit(&mpctx->mixer);
-        mpctx->mixer.ao = NULL;
         if (mpctx->ao)
             ao_uninit(mpctx->ao, mpctx->stop_play != AT_END_OF_FILE);
         mpctx->ao = NULL;
@@ -643,9 +625,11 @@ static void mk_config_dir(char *subdir)
 {
     void *tmp = talloc_new(NULL);
     char *confdir = talloc_steal(tmp, mp_find_user_config_file(""));
-    if (subdir)
-        confdir = mp_path_join(tmp, bstr0(confdir), bstr0(subdir));
-    mkdir(confdir, 0777);
+    if (confdir) {
+        if (subdir)
+            confdir = mp_path_join(tmp, bstr0(confdir), bstr0(subdir));
+        mkdir(confdir, 0777);
+    }
     talloc_free(tmp);
 }
 
@@ -799,17 +783,28 @@ static void load_per_file_config(m_config_t *conf, const char * const file,
 
 #define MP_WATCH_LATER_CONF "watch_later"
 
-static char *get_playback_resume_config_filename(const char *fname)
+static char *get_playback_resume_config_filename(const char *fname,
+                                                 struct MPOpts *opts)
 {
     char *res = NULL;
     void *tmp = talloc_new(NULL);
     const char *realpath = fname;
-    if (!mp_is_url(bstr0(fname))) {
+    bstr bfname = bstr0(fname);
+    if (!mp_is_url(bfname)) {
         char *cwd = mp_getcwd(tmp);
         if (!cwd)
             goto exit;
         realpath = mp_path_join(tmp, bstr0(cwd), bstr0(fname));
     }
+#ifdef CONFIG_DVDREAD
+    if (bstr_startswith0(bfname, "dvd://"))
+        realpath = talloc_asprintf(tmp, "%s - %s", realpath, dvd_device);
+#endif
+#ifdef CONFIG_LIBBLURAY
+    if (bstr_startswith0(bfname, "br://") || bstr_startswith0(bfname, "bd://") ||
+        bstr_startswith0(bfname, "bluray://"))
+        realpath = talloc_asprintf(tmp, "%s - %s", realpath, bluray_device);
+#endif
     uint8_t md5[16];
     av_md5_sum(md5, realpath, strlen(realpath));
     char *conf = talloc_strdup(tmp, "");
@@ -831,8 +826,7 @@ static const char *backup_properties[] = {
     "speed",
     "edition",
     "pause",
-    //"volume",
-    //"mute",
+    "volume-restore-data",
     "audio-delay",
     //"balance",
     "fullscreen",
@@ -876,7 +870,8 @@ void mp_write_watch_later_conf(struct MPContext *mpctx)
 
     mk_config_dir(MP_WATCH_LATER_CONF);
 
-    char *conffile = get_playback_resume_config_filename(mpctx->filename);
+    char *conffile = get_playback_resume_config_filename(mpctx->filename,
+                                                         mpctx->opts);
     talloc_steal(tmp, conffile);
     if (!conffile)
         goto exit;
@@ -903,7 +898,7 @@ exit:
 
 static void load_playback_resume(m_config_t *conf, const char *file)
 {
-    char *fname = get_playback_resume_config_filename(file);
+    char *fname = get_playback_resume_config_filename(file, conf->optstruct);
     if (fname && mp_path_exists(fname)) {
         // Never apply the saved start position to following files
         m_config_backup_opt(conf, "start");
@@ -920,10 +915,11 @@ static void load_playback_resume(m_config_t *conf, const char *file)
 // resume file for them, this is simpler, and also has the nice property
 // that appending to a playlist doesn't interfere with resuming (especially
 // if the playlist comes from the command line).
-struct playlist_entry *mp_resume_playlist(struct playlist *playlist)
+struct playlist_entry *mp_resume_playlist(struct playlist *playlist,
+                                          struct MPOpts *opts)
 {
     for (struct playlist_entry *e = playlist->first; e; e = e->next) {
-        char *conf = get_playback_resume_config_filename(e->filename);
+        char *conf = get_playback_resume_config_filename(e->filename, opts);
         bool exists = conf && mp_path_exists(conf);
         talloc_free(conf);
         if (exists)
@@ -1626,7 +1622,6 @@ static int build_afilter_chain(struct MPContext *mpctx)
 
 static int recreate_audio_filters(struct MPContext *mpctx)
 {
-    struct MPOpts *opts = mpctx->opts;
     assert(mpctx->sh_audio);
 
     // init audio filters:
@@ -1636,20 +1631,7 @@ static int recreate_audio_filters(struct MPContext *mpctx)
         return -1;
     }
 
-    mpctx->mixer.afilter = mpctx->sh_audio->afilter;
-    mpctx->mixer.volstep = opts->volstep;
-    mpctx->mixer.softvol = opts->softvol;
-    mpctx->mixer.softvol_max = opts->softvol_max;
-    mixer_reinit(&mpctx->mixer, mpctx->ao);
-    if (!(mpctx->initialized_flags & INITIALIZED_VOL)) {
-        if (opts->mixer_init_volume >= 0) {
-            mixer_setvolume(&mpctx->mixer, opts->mixer_init_volume,
-                            opts->mixer_init_volume);
-        }
-        if (opts->mixer_init_mute >= 0)
-            mixer_setmute(&mpctx->mixer, opts->mixer_init_mute);
-        mpctx->initialized_flags |= INITIALIZED_VOL;
-    }
+    mixer_reinit_audio(mpctx->mixer, mpctx->ao, mpctx->sh_audio->afilter);
 
     return 0;
 }
@@ -1674,7 +1656,7 @@ void reinit_audio_chain(struct MPContext *mpctx)
     struct MPOpts *opts = mpctx->opts;
     init_demux_stream(mpctx, STREAM_AUDIO);
     if (!mpctx->sh_audio) {
-        uninit_player(mpctx, INITIALIZED_VOL | INITIALIZED_AO);
+        uninit_player(mpctx, INITIALIZED_AO);
         goto no_audio;
     }
 
@@ -1745,7 +1727,7 @@ void reinit_audio_chain(struct MPContext *mpctx)
     return;
 
 init_error:
-    uninit_player(mpctx, INITIALIZED_ACODEC | INITIALIZED_AO | INITIALIZED_VOL);
+    uninit_player(mpctx, INITIALIZED_ACODEC | INITIALIZED_AO);
     cleanup_demux_stream(mpctx, STREAM_AUDIO);
 no_audio:
     mpctx->current_track[STREAM_AUDIO] = NULL;
@@ -1828,7 +1810,7 @@ static void reset_subtitles(struct MPContext *mpctx)
     osd_changed(mpctx->osd, OSDTYPE_SUB);
 }
 
-static void update_subtitles(struct MPContext *mpctx, double refpts_tl)
+static void update_subtitles(struct MPContext *mpctx)
 {
     struct MPOpts *opts = mpctx->opts;
     if (!(mpctx->initialized_flags & INITIALIZED_SUB))
@@ -1846,7 +1828,7 @@ static void update_subtitles(struct MPContext *mpctx, double refpts_tl)
 
     mpctx->osd->video_offset = track->under_timeline ? mpctx->video_offset : 0;
 
-    double refpts_s = refpts_tl - mpctx->osd->video_offset;
+    double refpts_s = mpctx->playback_pts - mpctx->osd->video_offset;
     double curpts_s = refpts_s + opts->sub_delay;
 
     if (!track->preloaded) {
@@ -2052,7 +2034,7 @@ void mp_switch_track(struct MPContext *mpctx, enum stream_type type,
         uninit_player(mpctx, INITIALIZED_VCODEC |
                         (mpctx->opts->fixed_vo && track ? 0 : INITIALIZED_VO));
     } else if (type == STREAM_AUDIO) {
-        uninit_player(mpctx, INITIALIZED_AO | INITIALIZED_ACODEC | INITIALIZED_VOL);
+        uninit_player(mpctx, INITIALIZED_AO | INITIALIZED_ACODEC);
     } else if (type == STREAM_SUB) {
         uninit_player(mpctx, INITIALIZED_SUB);
     }
@@ -2298,7 +2280,7 @@ static int fill_audio_out_buffers(struct MPContext *mpctx, double endpts)
              * while displaying video, then doing the output format switch.
              */
             if (!mpctx->opts->gapless_audio)
-                uninit_player(mpctx, INITIALIZED_AO | INITIALIZED_VOL);
+                uninit_player(mpctx, INITIALIZED_AO);
             reinit_audio_chain(mpctx);
             return -1;
         } else if (res == ASYNC_PLAY_DONE)
@@ -2862,8 +2844,6 @@ static bool redraw_osd(struct MPContext *mpctx)
     if (vo_redraw_frame(vo) < 0)
         return false;
 
-    if (mpctx->sh_video)
-        update_subtitles(mpctx, mpctx->sh_video->pts);
     draw_osd(mpctx);
 
     vo_flip_page(vo, 0, -1);
@@ -2933,7 +2913,7 @@ static bool timeline_set_part(struct MPContext *mpctx, int i, bool force)
     enum stop_play_reason orig_stop_play = mpctx->stop_play;
     if (!mpctx->sh_video && mpctx->stop_play == KEEP_PLAYING)
         mpctx->stop_play = AT_END_OF_FILE;  // let audio uninit drain data
-    uninit_player(mpctx, INITIALIZED_VCODEC | (mpctx->opts->fixed_vo ? 0 : INITIALIZED_VO) | (mpctx->opts->gapless_audio ? 0 : INITIALIZED_AO) | INITIALIZED_VOL | INITIALIZED_ACODEC | INITIALIZED_SUB);
+    uninit_player(mpctx, INITIALIZED_VCODEC | (mpctx->opts->fixed_vo ? 0 : INITIALIZED_VO) | (mpctx->opts->gapless_audio ? 0 : INITIALIZED_AO) | INITIALIZED_ACODEC | INITIALIZED_SUB);
     mpctx->stop_play = orig_stop_play;
 
     mpctx->demuxer = n->source;
@@ -3412,7 +3392,7 @@ static void handle_pause_on_low_cache(struct MPContext *mpctx)
 static void handle_heartbeat_cmd(struct MPContext *mpctx)
 {
     struct MPOpts *opts = mpctx->opts;
-    if (opts->heartbeat_cmd) {
+    if (opts->heartbeat_cmd && !mpctx->paused) {
         double now = mp_time_sec();
         if (now - mpctx->last_heartbeat > opts->heartbeat_interval) {
             mpctx->last_heartbeat = now;
@@ -3456,7 +3436,7 @@ static void handle_cursor_autohide(struct MPContext *mpctx)
     mpctx->mouse_cursor_visible = mouse_cursor_visible;
 }
 
-static void handle_seek_coalesce(struct MPContext *mpctx)
+static void handle_input_and_seek_coalesce(struct MPContext *mpctx)
 {
     mp_cmd_t *cmd;
     while ((cmd = mp_input_get_cmd(mpctx->input, 0, 1)) != NULL) {
@@ -3712,7 +3692,7 @@ static void run_playloop(struct MPContext *mpctx)
         mpctx->video_pts = sh_video->pts;
         mpctx->last_vo_pts = mpctx->video_pts;
         mpctx->playback_pts = mpctx->video_pts;
-        update_subtitles(mpctx, sh_video->pts);
+        update_subtitles(mpctx);
         update_osd_msg(mpctx);
         draw_osd(mpctx);
 
@@ -3799,10 +3779,9 @@ static void run_playloop(struct MPContext *mpctx)
         }
         mpctx->playback_pts = a_pos;
         print_status(mpctx);
-
-        if (!mpctx->sh_video)
-            update_subtitles(mpctx, a_pos);
     }
+
+    update_subtitles(mpctx);
 
     /* It's possible for the user to simultaneously switch both audio
      * and video streams to "disabled" at runtime. Handle this by waiting
@@ -3906,7 +3885,7 @@ static void run_playloop(struct MPContext *mpctx)
     mp_notify(mpctx, MP_EVENT_TICK, NULL);
     mp_flush_events(mpctx);
 
-    handle_seek_coalesce(mpctx);
+    handle_input_and_seek_coalesce(mpctx);
 
     handle_backstep(mpctx);
 
@@ -4236,7 +4215,7 @@ static void print_resolve_contents(struct mp_log *log,
         if (res->subs[n]->lang)
             mp_msg_log(log, MSGL_V, "    lang: %s\n", res->subs[n]->lang);
         if (res->subs[n]->data) {
-            mp_msg_log(log, MSGL_V, "    data: %d bytes\n",
+            mp_msg_log(log, MSGL_V, "    data: %zd bytes\n",
                        strlen(res->subs[n]->data));
         }
     }
@@ -4311,6 +4290,7 @@ static void transfer_playlist(struct MPContext *mpctx, struct playlist *pl)
 static void play_current_file(struct MPContext *mpctx)
 {
     struct MPOpts *opts = mpctx->opts;
+    double playback_start = -1e100;
 
     mpctx->initialized_flags |= INITIALIZED_PLAYBACK;
 
@@ -4602,6 +4582,7 @@ goto_reopen_demuxer: ;
     if (mpctx->opts->pause)
         pause_player(mpctx);
 
+    playback_start = mp_time_sec();
     mpctx->error_playing = false;
     while (!mpctx->stop_play)
         run_playloop(mpctx);
@@ -4618,6 +4599,9 @@ goto_reopen_demuxer: ;
 #endif
 
 terminate_playback:  // don't jump here after ao/vo/getch initialization!
+
+    if (mpctx->stop_play == KEEP_PLAYING)
+        mpctx->stop_play = AT_END_OF_FILE;
 
     if (opts->position_save_on_quit && mpctx->stop_play == PT_QUIT)
         mp_write_watch_later_conf(mpctx);
@@ -4651,6 +4635,12 @@ terminate_playback:  // don't jump here after ao/vo/getch initialization!
     ass_clear_fonts(mpctx->ass_library);
 #endif
 
+    // Played/paused for longer than 3 seconds -> ok
+    bool playback_failed = mpctx->stop_play == AT_END_OF_FILE &&
+                (playback_start < 0 || mp_time_sec() - playback_start < 3.0);
+    if (mpctx->playlist->current && !mpctx->playlist->current_was_replaced)
+        mpctx->playlist->current->playback_failed = playback_failed;
+
     mp_notify(mpctx, MP_EVENT_TRACKS_CHANGED, NULL);
     mp_notify(mpctx, MP_EVENT_END_FILE, NULL);
     mp_flush_events_all(mpctx);
@@ -4658,9 +4648,16 @@ terminate_playback:  // don't jump here after ao/vo/getch initialization!
 
 // Determine the next file to play. Note that if this function returns non-NULL,
 // it can have side-effects and mutate mpctx.
-struct playlist_entry *mp_next_file(struct MPContext *mpctx, int direction)
+//  direction: -1 (previous) or +1 (next)
+//  force: if true, don't skip playlist entries marked as failed
+struct playlist_entry *mp_next_file(struct MPContext *mpctx, int direction,
+                                    bool force)
 {
     struct playlist_entry *next = playlist_get_next(mpctx->playlist, direction);
+    if (direction < 0 && !force) {
+        while (next && next->playback_failed)
+            next = next->prev;
+    }
     if (!next && mpctx->opts->loop_times >= 0) {
         if (direction > 0) {
             if (mpctx->opts->shuffle)
@@ -4673,6 +4670,17 @@ struct playlist_entry *mp_next_file(struct MPContext *mpctx, int direction)
             }
         } else {
             next = mpctx->playlist->last;
+        }
+        if (!force && next && next->playback_failed) {
+            bool all_failed = true;
+            struct playlist_entry *cur;
+            for (cur = mpctx->playlist->first; cur; cur = cur->next) {
+                all_failed &= cur->playback_failed;
+                if (!all_failed)
+                    break;
+            }
+            if (all_failed)
+                next = NULL;
         }
     }
     return next;
@@ -4710,7 +4718,7 @@ static void play_files(struct MPContext *mpctx)
         struct playlist_entry *new_entry = NULL;
 
         if (mpctx->stop_play == PT_NEXT_ENTRY) {
-            new_entry = mp_next_file(mpctx, +1);
+            new_entry = mp_next_file(mpctx, +1, false);
         } else if (mpctx->stop_play == PT_CURRENT_ENTRY) {
             new_entry = mpctx->playlist->current;
         } else if (mpctx->stop_play == PT_RESTART) {
@@ -4863,6 +4871,7 @@ static int mpv_main(int argc, char *argv[])
     init_libav();
     GetCpuCaps(&gCpuCaps);
     screenshot_init(mpctx);
+    mpctx->mixer = mixer_init(mpctx, opts);
     command_init(mpctx);
 
     // Preparse the command line
@@ -4935,7 +4944,7 @@ static int mpv_main(int argc, char *argv[])
     if (opts->shuffle)
         playlist_shuffle(mpctx->playlist);
 
-    mpctx->playlist->current = mp_resume_playlist(mpctx->playlist);
+    mpctx->playlist->current = mp_resume_playlist(mpctx->playlist, opts);
     if (!mpctx->playlist->current)
         mpctx->playlist->current = mpctx->playlist->first;
 

@@ -593,8 +593,10 @@ static bool create_display (struct vo_wayland_state *wl)
     wl->display.display = wl_display_connect(NULL);
 
     if (!wl->display.display) {
-        MP_ERR(wl->vo, "failed to connect to a wayland server: "
-                       "check if a wayland compositor is running\n");
+        MP_MSG(wl, wl->vo->probing ? MSGL_V : MSGL_ERR,
+               "failed to connect to a wayland server: "
+               "check if a wayland compositor is running\n");
+
         return false;
     }
 
@@ -803,8 +805,12 @@ static int vo_wayland_check_events (struct vo *vo)
      * when pausing no input events get queued so we have to check if there
      * are events to read from the file descriptor through poll */
     if (poll(&fd, 1, 0) > 0) {
-        if (fd.revents & POLLERR || fd.revents & POLLHUP)
-            MP_ERR(wl, "error occurred on the display fd\n");
+        if (fd.revents & POLLERR || fd.revents & POLLHUP) {
+            MP_FATAL(wl, "error occurred on the display fd: "
+                         "closing file descriptor\n");
+            close(wl->display.display_fd);
+            mp_input_put_key(vo->input_ctx, MP_KEY_CLOSE_WIN);
+        }
         if (fd.revents & POLLIN)
             wl_display_dispatch(dp);
         if (fd.revents & POLLOUT)

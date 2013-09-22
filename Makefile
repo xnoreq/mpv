@@ -45,7 +45,7 @@ SOURCES-$(LIBPOSTPROC)          += video/filter/vf_pp.c
 SOURCES-$(LIBSMBCLIENT)         += stream/stream_smb.c
 
 SOURCES-$(COCOA)                += video/out/cocoa_common.m \
-                                   osdep/macosx_bundle.m \
+                                   osdep/path-macosx.m \
                                    osdep/macosx_application.m \
                                    osdep/macosx_events.m \
                                    osdep/ar/HIDRemote.m
@@ -54,6 +54,7 @@ SOURCES-$(MPG123)               += audio/decode/ad_mpg123.c
 
 SOURCES-$(NEED_GETTIMEOFDAY)    += osdep/gettimeofday.c
 SOURCES-$(NEED_GLOB)            += osdep/glob-win.c
+SOURCES-$(WIN32)                += osdep/path-win.c
 
 SOURCES-$(PRIORITY)             += osdep/priority.c
 SOURCES-$(PVR)                  += stream/stream_pvr.c
@@ -445,10 +446,10 @@ DOCS/man/en/mpv.1 DOCS/man/en/mpv.pdf: DOCS/man/en/af.rst \
 
 ###### installation / clean / generic rules #######
 
-install:               $(INSTALL_BIN)       $(INSTALL_MAN) $(INSTALL_PDF)
-install-no-man:        $(INSTALL_BIN)
-install-strip:         $(INSTALL_BIN_STRIP) $(INSTALL_MAN) $(INSTALL_PDF)
-install-strip-no-man:  $(INSTALL_BIN_STRIP)
+install:               $(INSTALL_BIN)       install-data $(INSTALL_MAN) $(INSTALL_PDF)
+install-no-man:        $(INSTALL_BIN)       install-data
+install-strip:         $(INSTALL_BIN_STRIP) install-data $(INSTALL_MAN) $(INSTALL_PDF)
+install-strip-no-man:  $(INSTALL_BIN_STRIP) install-data
 
 install-dirs:
 	if test ! -d $(BINDIR) ; then $(INSTALL) -d $(BINDIR) ; fi
@@ -471,11 +472,31 @@ install-mpv-pdf-en: DOCS/man/en/mpv.pdf
 	if test ! -d $(DOCDIR)/mpv ; then $(INSTALL) -d $(DOCDIR)/mpv ; fi
 	$(INSTALL) -m 644 DOCS/man/en/mpv.pdf $(DOCDIR)/mpv/
 
+ICONSIZES = 16x16 32x32 64x64
+
+define ICON_INSTALL_RULE
+install-mpv-icon-$(size): etc/mpv-icon-8bit-$(size).png
+	$(INSTALL) -d $(prefix)/share/icons/hicolor/$(size)/apps
+	$(INSTALL) -m 644 etc/mpv-icon-8bit-$(size).png $(prefix)/share/icons/hicolor/$(size)/apps/mpv.png
+endef
+
+$(foreach size,$(ICONSIZES),$(eval $(ICON_INSTALL_RULE)))
+
+install-mpv-icons: $(foreach size,$(ICONSIZES),install-mpv-icon-$(size))
+
+install-mpv-desktop: etc/mpv.desktop
+	$(INSTALL) -d $(prefix)/share/applications
+	$(INSTALL) -m 644 etc/mpv.desktop $(prefix)/share/applications/
+
+install-data: install-mpv-icons install-mpv-desktop
+
 uninstall:
 	$(RM) $(BINDIR)/mpv$(EXESUF)
 	$(RM) $(MANDIR)/man1/mpv.1
 	$(RM) $(MANDIR)/en/man1/mpv.1
 	$(RM) $(DOCDIR)/mpv/mpv.pdf
+	$(RM) $(prefix)/share/applications/mpv.desktop
+	$(RM) $(foreach size,$(ICONSIZES),$(prefix)/share/icons/hicolor/$(size)/apps/mpv.png)
 
 clean:
 	-$(RM) $(call ADD_ALL_DIRS,/*.o /*.d /*.a /*.ho /*~)
