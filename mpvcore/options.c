@@ -53,8 +53,6 @@ extern char *lirc_configfile;
 extern int mp_msg_color;
 extern int mp_msg_module;
 
-extern int dvd_speed; /* stream/stream_dvd.c */
-
 /* defined in demux: */
 extern const m_option_t demux_rawaudio_opts[];
 extern const m_option_t demux_rawvideo_opts[];
@@ -177,8 +175,6 @@ static const m_option_t scaler_filter_conf[]={
     {"cs", &sws_chr_sharpen, CONF_TYPE_FLOAT, 0, -100.0, 100.0, NULL},
     {NULL, NULL, 0, 0, 0, 0, NULL}
 };
-
-extern char *dvd_device, *cdrom_device;
 
 extern double mf_fps;
 extern char * mf_type;
@@ -387,6 +383,11 @@ const m_option_t mp_opts[] = {
     {"referrer", &network_referrer, CONF_TYPE_STRING, 0, 0, 0, NULL},
     {"cookies", &network_cookies_enabled, CONF_TYPE_FLAG, 0, 0, 1, NULL},
     {"cookies-file", &cookies_file, CONF_TYPE_STRING, 0, 0, 0, NULL},
+    OPT_CHOICE("rtsp-transport", network_rtsp_transport, 0,
+               ({"lavf", 0},
+                {"udp", 1},
+                {"tcp", 2},
+                {"http", 3})),
 
 // ------------------------- demuxer options --------------------
 
@@ -570,6 +571,7 @@ const m_option_t mp_opts[] = {
                ({"auto", -1},
                 {"no", 0},
                 {"yes", 1}, {"", 1})),
+    OPT_STRING("volume-restore-data", mixer_restore_volume_data, 0),
     OPT_FLAG("gapless-audio", gapless_audio, 0),
 
     // set screen dimensions (when not detectable or virtual!=visible)
@@ -798,6 +800,7 @@ const struct MPOpts mp_default_opts = {
     .stream_cache_min_percent = 20.0,
     .stream_cache_seek_min_percent = 50.0,
     .stream_cache_pause = 10.0,
+    .network_rtsp_transport = 2,
     .chapterrange = {-1, -1},
     .edition_id = -1,
     .default_max_pts_correction = -1,

@@ -186,6 +186,19 @@ static char *create_fname(struct MPContext *mpctx, char *template,
             talloc_free(t);
             break;
         }
+        case 'w': {
+            char tfmt = *template;
+            if (!tfmt)
+                goto error_exit;
+            template++;
+            char fmtstr[] = {'%', tfmt, '\0'};
+            char *s = mp_format_time_fmt(fmtstr, get_current_time(mpctx));
+            if (!s)
+                goto error_exit;
+            append_filename(&res, s);
+            talloc_free(s);
+            break;
+        }
         case 't': {
             char tfmt = *template;
             if (!tfmt)

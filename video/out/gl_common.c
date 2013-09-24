@@ -858,11 +858,13 @@ static struct backend backends[] = {
 #ifdef CONFIG_GL_WIN32
     {"win", mpgl_set_backend_w32},
 #endif
-#ifdef CONFIG_GL_X11
-    {"x11", mpgl_set_backend_x11},
-#endif
+
+//Add the wayland backend before x11, in order to probe for a wayland-server before a x11-server and avoid using xwayland
 #ifdef CONFIG_GL_WAYLAND
     {"wayland", mpgl_set_backend_wayland},
+#endif
+#ifdef CONFIG_GL_X11
+    {"x11", mpgl_set_backend_x11},
 #endif
     {0}
 };
@@ -893,18 +895,21 @@ int mpgl_validate_backend_opt(const struct m_option *opt, struct bstr name,
     return mpgl_find_backend(s) >= -1 ? 1 : M_OPT_INVALID;
 }
 
-static MPGLContext *init_backend(struct vo *vo, MPGLSetBackendFn set_backend)
+static MPGLContext *init_backend(struct vo *vo, MPGLSetBackendFn set_backend,
+                                 bool probing)
 {
     MPGLContext *ctx = talloc_ptrtype(NULL, ctx);
     *ctx = (MPGLContext) {
         .gl = talloc_zero(ctx, GL),
         .vo = vo,
     };
+    vo->probing = probing;
     set_backend(ctx);
     if (!ctx->vo_init(vo)) {
         talloc_free(ctx);
         ctx = NULL;
     }
+    vo->probing = false;
     return ctx;
 }
 
@@ -914,12 +919,12 @@ MPGLContext *mpgl_init(struct vo *vo, const char *backend_name)
     int index = mpgl_find_backend(backend_name);
     if (index == -1) {
         for (const struct backend *entry = backends; entry->name; entry++) {
-            ctx = init_backend(vo, entry->init);
+            ctx = init_backend(vo, entry->init, true);
             if (ctx)
-                return ctx;
+                break;
         }
     } else if (index >= 0) {
-        ctx = init_backend(vo, backends[index].init);
+        ctx = init_backend(vo, backends[index].init, false);
     }
     return ctx;
 }
