@@ -16,7 +16,7 @@ local user_opts = {
     vidscale = true,                        -- scale the controller with the video?
     valign = 0.8,                           -- vertical alignment, -1 (top) to 1 (bottom)
     halign = 0,                             -- horizontal alignment, -1 (left) to 1 (right)
-    fadeduration = 100,                     -- duration of fade in/out in ms, 0 = no fade
+    fadeduration = 200,                     -- duration of fade in/out in ms, 0 = no fade
     deadzonedist = 0.15,                    -- distance between OSC and deadzone
     iAmAProgrammer = false,                 -- start counting stuff at 0 and disable OSC internal playlist management (and some functions that depend on it)
 }
@@ -100,9 +100,9 @@ function typeconv(desttypeval, val)
 end
 
 -- Automagical config handling
--- options:     A table with options settable via config with assigned default values. The type of the default values is important for
+-- options:     A table with options setable via config with assigned default values. The type of the default values is important for
 --              converting the values read from the config file back. Do not use "nil" as a default value!
--- identifier:  A simple indentifier for the config file. Make sure this doesn't collide with other scripts.
+-- identifier:  A simple indentifier string for the config file. Make sure this doesn't collide with other scripts.
 
 -- How does it work:
 -- Existance of the configfile will be checked, if it doesn't exist, the default values from the options table will be written in a new
@@ -1004,17 +1004,13 @@ end
 -- Other important stuff
 --
 
-function start_animation(anitype)
-    state.anitype = anitype
-end
 
 function show_osc()
+
+    state.osc_visible = true
+
     if (user_opts.fadeduration > 0) then
-        if not(state.osc_visible == true) or (state.anitype == "out") then
-            start_animation("in")
-        end
-    else
-        state.osc_visible = true
+        state.anitype = nil
     end
 
 end
@@ -1022,7 +1018,7 @@ end
 function hide_osc()
     if (user_opts.fadeduration > 0) then
         if not(state.osc_visible == false) then
-            start_animation("out")
+            state.anitype = "out"
         end
     else
         state.osc_visible = false
@@ -1083,8 +1079,10 @@ function render()
             state.animation = nil
             state.anitype =  nil
         end
-
-
+    else
+        state.anistart = nil
+        state.animation = nil
+        state.anitype =  nil
     end
 
     local ass = assdraw.ass_new()
