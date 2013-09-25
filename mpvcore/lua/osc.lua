@@ -16,7 +16,7 @@ local user_opts = {
     vidscale = true,                        -- scale the controller with the video?
     valign = 0.8,                           -- vertical alignment, -1 (top) to 1 (bottom)
     halign = 0,                             -- horizontal alignment, -1 (left) to 1 (right)
-    fadeduration = 200,                     -- duration of fade in/out in ms, 0 = no fade
+    fadeduration = 200,                     -- duration of fade out in ms, 0 = no fade
     deadzonedist = 0.15,                    -- distance between OSC and deadzone
     iAmAProgrammer = false,                 -- start counting stuff at 0 and disable OSC internal playlist management (and some functions that depend on it)
 }
@@ -127,19 +127,17 @@ function read_config(options, identifier)
 
     else
         -- config exists, read values
-        -- print("\n"..conffile.." exists\n")
         local linecounter = 1
         for line in f:lines() do
             if string.find(line, "#") == 1 then
-                --print("\n"..conffilename..":"..linecounter.." comment line, ignoring")
+
             else
                 local eqpos = string.find(line, "=")
                 if eqpos == nil then
-                    --print("\n"..conffilename..":"..linecounter.." no = found, ignoring")
+
                 else
                     local key = string.sub(line, 1, eqpos-1)
                     local val = string.sub(line, eqpos+1)
-                    -- print("\n"..conffilename..":"..linecounter.." found valid line: " .. key .. " - " .. val)
 
                     -- match found values with defaults
                     if options[key] == nil then
@@ -323,11 +321,11 @@ end
 
 -- get the currently selected track of <type>, OSC-style counted
 function get_track(type)
-    local current_track_mpv, current_track_osc
-    if (mp.property_get(type) == "no") then
+    local track = mp.property_get(type)
+    if (track == "no" or track == nil) then
         return 0
     else
-        return tracks_mpv[type][tonumber(mp.property_get(type))].osc_id
+        return tracks_mpv[type][tonumber(track)].osc_id
     end
 end
 
@@ -490,14 +488,11 @@ function render_elements(master_ass)
     for n = 1, #elements do
 
         local element = elements[n]
-
         local elem_ass = assdraw.ass_new()
-
         local elem_ass1 = element.elem_ass
         elem_ass:merge(elem_ass1)
 
         --alpha
-
         local alpha = element.metainfo.alpha
 
         if not(state.animation == nil) then
@@ -542,7 +537,7 @@ function render_elements(master_ass)
                 if pos > element.metainfo.slider.max then
                     pos = element.metainfo.slider.max
                 elseif pos < element.metainfo.slider.min then
-                     pos = element.metainfo.slider.min
+                    pos = element.metainfo.slider.min
                 end
 
                 local fill_offsetV = element.metainfo.slider.border + element.metainfo.slider.gap
@@ -557,7 +552,6 @@ function render_elements(master_ass)
 
                 if element.metainfo.slider.type == "bar" then
                     elem_ass:rect_cw(fill_offsetV, fill_offsetV, xp, element.h - fill_offsetV)
-                    --elem_ass:round_rect_cw(xp-(innerH/2), fill_offsetV, xp+(innerH/2), element.h - fill_offsetV, innerH*1.25)
                 else
                     elem_ass:move_to(xp, fill_offsetV)
                     elem_ass:line_to(xp+(innerH/2), (innerH/2)+fill_offsetV)
@@ -575,7 +569,6 @@ function render_elements(master_ass)
         else
             elem_ass:append(element.content) -- text objects
         end
-        --print(elem_ass.text)
 
         master_ass:merge(elem_ass)
     end
@@ -632,11 +625,10 @@ end
 
 -- OSC INIT
 function osc_init()
-    --print("\nINIT\n")
     -- kill old Elements
     elements = {}
 
-    -- set canvas resolution acording to display aspect and scaleing setting
+    -- set canvas resolution acording to display aspect and scaling setting
     local baseResY = 720
     local display_w, display_h, display_aspect = mp.get_screen_size()
     local scale = 1
@@ -671,6 +663,7 @@ function osc_init()
     --
     -- Backround box
     --
+
     local metainfo = {}
     metainfo.alpha = 80
     register_box(posX, posY, 5, osc_w, osc_h, osc_r, osc_styles.box, metainfo)
@@ -970,34 +963,6 @@ function osc_init()
 
     register_button(posX + pos_offsetX, bottomrowY, 6, 110, 18, osc_styles.timecodes, contentF, eventresponder, metainfo)
 
-    -- Volume Slider
-    --[[
-
-    local posF = function ()
-        if not(mp.property_get("volume") == nil) then
-            return tonumber(mp.property_get("volume"))
-        else
-            return 0
-        end
-    end
-
-
-    local metainfo = {}
-    metainfo.styledown = false
-    metainfo.slider = {}
-    metainfo.slider.border = 1
-    metainfo.slider.gap = 1
-
-    local eventresponder = {}
-    local sliderF = function (element)
-        mp.send_command(string.format("no-osd set volume %f", get_slider_value(element)))
-    end
-    eventresponder.mouse_move = sliderF
-    eventresponder.mouse_btn0_down = sliderF
-    eventresponder.mouse_btn2_up = function ()  mp.send_command("no-osd set volume 100") end
-    register_slider(posX,bottomrowY, 5, 150, 12, osc_styles.timecodes, 0, 100, nil, posF, eventresponder, metainfo)
-    --]]
-
 end
 
 --
@@ -1060,18 +1025,10 @@ function render()
 
             if (state.anitype == "in") then --fade in
                 state.osc_visible = true
-
                 state.animation = scale_value(state.anistart, (state.anistart + (user_opts.fadeduration/1000)), 255, 0, now)
-
-                --state.animation = string.format("{\\1a&H%X&}",alpha)
-                --print("\n -> ".. state.animation .."\n")
-
-
             elseif (state.anitype == "out") then --fade in
-
                 state.animation = scale_value(state.anistart, (state.anistart + (user_opts.fadeduration/1000)), 0, 255, now)
             end
-
 
         else
             if (state.anitype == "out") then state.osc_visible = false end
@@ -1087,67 +1044,11 @@ function render()
 
     local ass = assdraw.ass_new()
 
-    --ass:new_event()
-    --ass:append(0 .." ".. area_y0 .." ".. osc_param.playresx .." ".. area_y1)
-
-    --local x, y = mp.get_mouse_pos()
-
-    --local now = mp.get_timer()
-
     render_message(ass)
 
     if state.osc_visible then
         render_elements(ass)
     end
-
-
-
-    --[[ Old show handling
-
-    if mouse_over_osc() or state.mouse_down then
-        show_osc()
-    end
-
-    local osd_time = 1
-
-    if state.osc_visible and now - state.last_osd_time < osd_time then
-        draw_osc(ass)
-        state.osc_visible = true
-    else
-        state.osc_visible = false
-    end
-    --]]
-
-    --ass:new_event()
-
-    --local playresx, playresy = mp.get_osd_resolution()
-    --ass:append("{get_osd_resolution: X:" .. playresx .. " Y:" .. playresy .. "}")
-    --ass:append(now)
-    --local playresx, playresy = mp.get_osd_resolution()
-    --ass:append("get_mouse_pos: X:" .. x .. " Y:" .. y .. "")
-    --if state.active_button == nil then
-    --    ass:append("state.active_button: " .. "nil")
-    --else
-    --    ass:append("state.active_button: " .. state.active_button)
-    --end
-    --ass:append("Build time: " .. (mp.get_timer() - now)*1000 .." ms")
-
-    --[[
-    ass:new_event()
-    ass:pos(x, y)
-    ass:append("{\\an5}")
-    if state.mouse_down == true then
-        ass:append("-")
-    else
-        ass:append("+")
-    end
-    -- set canvas size
-    --mp.set_osd_ass(osc_geo.playresx, osc_geo.playresy, ass.text)
-    --]]
-
-    -- make sure there is something in ass so that mp.set_osd_ass won't fail
-    --ass:new_event()
-    --ass:append(tonumber(mp.property_get("percent-pos")))
 
     local w, h, aspect = mp.get_screen_size()
     mp.set_osd_ass(osc_param.playresy * aspect, osc_param.playresy, ass.text)
@@ -1184,7 +1085,6 @@ function process_event(source, what)
 
     if what == "down" then
 
-        --state.active_element = 0
         for n = 1, #elements do
 
             if not (elements[n].eventresponder == nil) then
@@ -1239,14 +1139,11 @@ function process_event(source, what)
 end
 
 function mp_event(name, arg)
-    --print("event: " .. name .. " arg: " .. (arg or "-") .. " -")
     if name == "tick" then
         render()
     elseif name == "start" or name == "track-layout" then
-        --print("start new file")
         request_init()
     elseif name == "end" then
-        --print("end current file")
     end
 end
 
