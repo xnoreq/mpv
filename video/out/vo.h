@@ -53,8 +53,12 @@ enum mp_voctrl {
     /* for hardware decoding */
     VOCTRL_GET_HWDEC_INFO,              // struct mp_hwdec_info*
 
+    /* render the frame last added with draw_image (vo_driver.buffer_frames) */
     VOCTRL_NEWFRAME,
+    /* drop the frame last added with draw_image */
     VOCTRL_SKIPFRAME,
+
+    /* repeat the last draw_image or NEWFRAME operation */
     VOCTRL_REDRAW_FRAME,
 
     VOCTRL_ONTOP,
@@ -150,6 +154,7 @@ struct vo_driver {
 
     const vo_info_t *info;
     /*
+     * One-time initialization, called at creation.
      *   returns: zero on successful initialization, non-zero on error.
      */
     int (*preinit)(struct vo *vo);
@@ -166,8 +171,7 @@ struct vo_driver {
      *   width,height: image source size
      *   d_width,d_height: requested window size, just a hint
      *   flags: combination of VOFLAG_ values
-     *   title: window title, if available
-     *   format: fourcc of pixel format
+     *   format: mp_imgfmt value for pixel format
      * returns : zero on successful initialization, non-zero on error.
      */
     int (*config)(struct vo *vo, uint32_t width, uint32_t height,
@@ -200,11 +204,13 @@ struct vo_driver {
 
     /*
      * Draws OSD to the screen buffer
+     * NULL if OSD is completely unsupported.
      */
     void (*draw_osd)(struct vo *vo, struct osd_state *osd);
 
     /*
      * Blit/Flip buffer to the screen. This is called after each frame.
+     * (Either this or flip_page_timed() must be implemented.)
      */
     void (*flip_page)(struct vo *vo);
 
@@ -256,7 +262,7 @@ struct vo {
     double next_pts2;   // optional pts of frame after that
     bool want_redraw;   // visible frame wrong (window resize), needs refresh
     bool redrawing;     // between redrawing frame and flipping it
-    bool hasframe;      // >= 1 frame has been drawn, so redraw is possible
+    bool hasframe;      // true if frame has been drawn, so redraw is possible
     double wakeup_period; // if > 0, this sets the maximum wakeup period for event polling
 
     double flip_queue_offset; // queue flip events at most this much in advance
