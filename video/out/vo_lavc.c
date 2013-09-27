@@ -523,7 +523,6 @@ static int control(struct vo *vo, uint32_t request, void *data)
 }
 
 const struct vo_driver video_out_lavc = {
-    .buffer_frames = false,
     .encode = true,
     .info = &(const struct vo_info_s){
         "video encoding using libavcodec",

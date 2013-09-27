@@ -186,18 +186,35 @@ int vo_control(struct vo *vo, uint32_t request, void *data)
     return vo->driver->control(vo, request, data);
 }
 
+static bool set_next_frame_info(struct vo *vo, bool eof)
+{
+    bool use_queue = false;
+    vo->frame_loaded = false;
+    vo->next_pts = MP_NOPTS_VALUE;
+    vo->next_duration = -1;
+    if (vo->driver->get_queue_status) {
+        use_queue =
+            vo->driver->get_queue_status(vo, eof, &vo->frame_loaded,
+                                         &vo->next_pts, &vo->next_duration);
+    }
+    if (vo->waiting_mpi) {
+        vo->frame_loaded = true;
+        vo->next_pts = vo->waiting_mpi->pts;
+    }
+    return use_queue;
+}
+
 void vo_queue_image(struct vo *vo, struct mp_image *mpi)
 {
     if (!vo->config_ok)
         return;
-    if (vo->driver->buffer_frames) {
+    // The call is just to check whether queuing is enabled.
+    if (set_next_frame_info(vo, false)) {
         vo->driver->draw_image(vo, mpi);
-        return;
+    } else {
+        vo->waiting_mpi = mp_image_new_ref(mpi);
     }
-    vo->frame_loaded = true;
-    vo->next_pts = mpi->pts;
-    assert(!vo->waiting_mpi);
-    vo->waiting_mpi = mp_image_new_ref(mpi);
+    set_next_frame_info(vo, false);
 }
 
 int vo_redraw_frame(struct vo *vo)
@@ -223,32 +240,26 @@ int vo_get_buffered_frame(struct vo *vo, bool eof)
 {
     if (!vo->config_ok)
         return -1;
-    if (vo->frame_loaded)
-        return 0;
-    if (!vo->driver->buffer_frames)
-        return -1;
-    vo->driver->get_buffered_frame(vo, eof);
+    set_next_frame_info(vo, eof);
     return vo->frame_loaded ? 0 : -1;
 }
 
 void vo_skip_frame(struct vo *vo)
 {
-    vo_control(vo, VOCTRL_SKIPFRAME, NULL);
-    vo->frame_loaded = false;
     mp_image_unrefp(&vo->waiting_mpi);
+    if (vo->driver->skip_frame)
+        vo->driver->skip_frame(vo);
+    set_next_frame_info(vo, false);
 }
 
 void vo_new_frame_imminent(struct vo *vo)
 {
-    if (vo->driver->buffer_frames)
-        vo_control(vo, VOCTRL_NEWFRAME, NULL);
-    else {
-        assert(vo->frame_loaded);
-        assert(vo->waiting_mpi);
-        assert(vo->waiting_mpi->pts == vo->next_pts);
+    if (vo->waiting_mpi) {
         vo->driver->draw_image(vo, vo->waiting_mpi);
         mp_image_unrefp(&vo->waiting_mpi);
     }
+    if (vo->driver->new_frame)
+        vo->driver->new_frame(vo);
 }
 
 void vo_draw_osd(struct vo *vo, struct osd_state *osd)
@@ -261,10 +272,8 @@ bool vo_flip_page(struct vo *vo, unsigned int pts_us, int duration)
 {
     if (!vo->config_ok)
         return false;
-    if (!vo->redrawing) {
-        vo->frame_loaded = false;
-        vo->next_pts = MP_NOPTS_VALUE;
-    }
+    if (!vo->redrawing)
+        set_next_frame_info(vo, false);
     vo->want_redraw = false;
     vo->redrawing = false;
     bool r = true;
@@ -287,12 +296,19 @@ void vo_check_events(struct vo *vo)
     vo_control(vo, VOCTRL_CHECK_EVENTS, NULL);
 }
 
+static void flush_frames(struct vo *vo)
+{
+    do {
+        vo_skip_frame(vo);
+        set_next_frame_info(vo, true);
+    } while (vo->frame_loaded);
+}
+
 void vo_seek_reset(struct vo *vo)
 {
+    flush_frames(vo);
     vo_control(vo, VOCTRL_RESET, NULL);
-    vo->frame_loaded = false;
     vo->hasframe = false;
-    mp_image_unrefp(&vo->waiting_mpi);
 }
 
 void vo_destroy(struct vo *vo)

@@ -3711,12 +3711,11 @@ static void run_playloop(struct MPContext *mpctx)
         double time_frame = FFMAX(mpctx->time_frame, -1);
         int64_t pts_us = mpctx->last_time + time_frame * 1e6;
         int duration = -1;
-        double pts2 = vo->next_pts2;
-        if (pts2 != MP_NOPTS_VALUE && opts->correct_pts &&
+        double pts_duration = vo->next_duration;
+        if (pts_duration != -1 && opts->correct_pts &&
                 !mpctx->restart_playback) {
             // expected A/V sync correction is ignored
-            double diff = (pts2 - mpctx->video_pts);
-            diff /= opts->playback_speed;
+            double diff = pts_duration / opts->playback_speed;
             if (mpctx->time_frame < 0)
                 diff += mpctx->time_frame;
             if (diff < 0)

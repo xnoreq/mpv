@@ -53,12 +53,7 @@ enum mp_voctrl {
     /* for hardware decoding */
     VOCTRL_GET_HWDEC_INFO,              // struct mp_hwdec_info*
 
-    /* render the frame last added with draw_image (vo_driver.buffer_frames) */
-    VOCTRL_NEWFRAME,
-    /* drop the frame last added with draw_image */
-    VOCTRL_SKIPFRAME,
-
-    /* repeat the last draw_image or NEWFRAME operation */
+    /* repeat the last draw_image() operation */
     VOCTRL_REDRAW_FRAME,
 
     VOCTRL_ONTOP,
@@ -145,10 +140,6 @@ struct mp_image;
 struct mp_image_params;
 
 struct vo_driver {
-    // Driver buffers or adds (deinterlace) frames and will keep track
-    // of pts values itself
-    bool buffer_frames;
-
     // Encoding functionality, which can be invoked via --o only.
     bool encode;
 
@@ -192,15 +183,57 @@ struct vo_driver {
      */
     int (*control)(struct vo *vo, uint32_t request, void *data);
 
+    /*
+     * Render video frame to backbuffer.
+     *
+     * If the VO has an internal queue of video images, this call adds the
+     * image to the queue, instead of actually drawing anything. The caller is
+     * allowed to queue images until get_queue_status() reports that a frame
+     * is available.
+     */
     void (*draw_image)(struct vo *vo, struct mp_image *mpi);
 
     /*
-     * Get extra frames from the VO, such as those added by VDPAU
-     * deinterlace. Preparing the next such frame if any could be done
-     * automatically by the VO after a previous flip_page(), but having
-     * it as a separate step seems to allow making code more robust.
+     * Remove the next image in the VO's internal queue, and render it to the
+     * backbuffer.
+     *
+     * (Not required if the VO does not do queue management.)
      */
-    void (*get_buffered_frame)(struct vo *vo, bool eof);
+    void (*new_frame)(struct vo *vo);
+
+    /*
+     * Drop the next image from the VO's internal queue. (This acts like
+     * new_frame() in terms of queue management.)
+     * Can be called even if the queue is empty.
+     *
+     * (Not required if the VO does not do queue management.)
+     */
+    void (*skip_frame)(struct vo *vo);
+
+    /*
+     * Query status of the internal VO image queue. This returns information
+     * about the next image that would be used with new_frame.
+     *
+     * The queue is advanced by calls to new_frame and skip_frame.
+     *
+     * Note that VOs that support certain video postprocessing filters can use
+     * this mechanism to change the number and timestamps of frames available.
+     * (Such as vdpau field splitting deinterlacing.)
+     *
+     * eof: if true, the end of the video has been reached. draw_image() won't
+     *      be called anymore, and the remaining queued images should be played.
+     *      (normally, the VO will maintain a fixed queue length)
+     * out_has_frame: set to true if an image is available and calling
+     *                new_frame() is allowed. If false, the playloop will call
+     *                draw_image() until a frame is available.
+     * out_pts: set to timestamp of the image
+     * out_duration: set to display duration according to timestamps (or -1)
+     * returns: whether queue management is used (affects draw_image() semantics)
+     *
+     * (Not required if the VO does not do queue management.)
+     */
+    bool (*get_queue_status)(struct vo *vo, bool eof, bool *out_has_image,
+                             double *out_pts, double *out_duration);
 
     /*
      * Draws OSD to the screen buffer
@@ -257,9 +290,10 @@ struct vo {
     bool untimed;       // non-interactive, don't do sleep calls in playloop
 
     bool frame_loaded;  // Is there a next frame the VO could flip to?
-    struct mp_image *waiting_mpi;
+    struct mp_image *waiting_mpi; // emulate 1-frame image queue
     double next_pts;    // pts value of the next frame if any
-    double next_pts2;   // optional pts of frame after that
+    double next_duration; // optional frame duration until the frame after that
+                          // -1 if unknown
     bool want_redraw;   // visible frame wrong (window resize), needs refresh
     bool redrawing;     // between redrawing frame and flipping it
     bool hasframe;      // true if frame has been drawn, so redraw is possible

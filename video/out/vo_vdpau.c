@@ -296,25 +296,25 @@ static int next_deint_queue_pos(struct vo *vo, bool eof)
     return dqp;
 }
 
-static void set_next_frame_info(struct vo *vo, bool eof)
+static bool get_queue_status(struct vo *vo, bool eof, bool *has_image,
+                             double *pts, double *duration)
 {
     struct vdpctx *vc = vo->priv;
 
-    vo->frame_loaded = false;
     int dqp = next_deint_queue_pos(vo, eof);
     if (dqp < 0)
-        return;
-    vo->frame_loaded = true;
+        return true;
 
-    // Set pts values
+    *has_image = true;
+
     struct buffered_video_surface *bv = vc->buffered_video;
     int idx = dqp >> 1;
     if (idx == 0) {  // no future frame/pts available
-        vo->next_pts = bv[0].pts;
-        vo->next_pts2 = MP_NOPTS_VALUE;
+        *pts = bv[0].pts;
+        *duration = -1;
     } else if (!(vc->deint >= 2)) {    // no field-splitting deinterlace
-        vo->next_pts = bv[idx].pts;
-        vo->next_pts2 = bv[idx - 1].pts;
+        *pts = bv[idx].pts;
+        *duration = bv[idx - 1].pts - *pts;
     } else {  // deinterlace with separate fields
         double intermediate_pts;
         double diff = bv[idx - 1].pts - bv[idx].pts;
@@ -323,13 +323,31 @@ static void set_next_frame_info(struct vo *vo, bool eof)
         else
             intermediate_pts =  bv[idx].pts;
         if (dqp & 1) { // first field
-            vo->next_pts = bv[idx].pts;
-            vo->next_pts2 = intermediate_pts;
+            *pts = bv[idx].pts;
+            *duration = intermediate_pts - *pts;
         } else {
-            vo->next_pts = intermediate_pts;
-            vo->next_pts2 = bv[idx - 1].pts;
+            *pts = intermediate_pts;
+            *duration = bv[idx - 1].pts - *pts;
         }
     }
+
+    return true;
+}
+
+static void new_frame(struct vo *vo)
+{
+    struct vdpctx *vc = vo->priv;
+
+    vc->deint_queue_pos = next_deint_queue_pos(vo, true);
+    if (status_ok(vo))
+        video_to_output_surface(vo);
+}
+
+static void skip_frame(struct vo *vo)
+{
+    struct vdpctx *vc = vo->priv;
+
+    vc->deint_queue_pos = next_deint_queue_pos(vo, true);
 }
 
 static void add_new_video_surface(struct vo *vo, VdpVideoSurface surface,
@@ -352,7 +370,6 @@ static void add_new_video_surface(struct vo *vo, VdpVideoSurface surface,
 
     vc->deint_queue_pos = FFMIN(vc->deint_queue_pos + 2,
                                 NUM_BUFFERED_VIDEO * 2 - 3);
-    set_next_frame_info(vo, false);
 }
 
 static void forget_frames(struct vo *vo)
@@ -1617,14 +1634,6 @@ static int control(struct vo *vo, uint32_t request, void *data)
             break;
         *(struct mp_csp_details *)data = vc->colorspace;
         return true;
-    case VOCTRL_NEWFRAME:
-        vc->deint_queue_pos = next_deint_queue_pos(vo, true);
-        if (status_ok(vo))
-            video_to_output_surface(vo);
-        return true;
-    case VOCTRL_SKIPFRAME:
-        vc->deint_queue_pos = next_deint_queue_pos(vo, true);
-        return true;
     case VOCTRL_REDRAW_FRAME:
         if (status_ok(vo))
             video_to_output_surface(vo);
@@ -1659,7 +1668,6 @@ static int control(struct vo *vo, uint32_t request, void *data)
 #define OPT_BASE_STRUCT struct vdpctx
 
 const struct vo_driver video_out_vdpau = {
-    .buffer_frames = true,
     .info = &(const struct vo_info_s){
         "VDPAU with X11",
         "vdpau",
@@ -1670,8 +1678,10 @@ const struct vo_driver video_out_vdpau = {
     .query_format = query_format,
     .config = config,
     .control = control,
+    .new_frame = new_frame,
+    .skip_frame = skip_frame,
     .draw_image = draw_image,
-    .get_buffered_frame = set_next_frame_info,
+    .get_queue_status = get_queue_status,
     .draw_osd = draw_osd,
     .flip_page_timed = flip_page_timed,
     .uninit = uninit,
