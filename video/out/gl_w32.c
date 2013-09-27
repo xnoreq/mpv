@@ -21,7 +21,9 @@
 
 #include <windows.h>
 #include "w32_common.h"
-#include "gl_common.h"
+#include "gl_context.h"
+#include "vo.h"
+#include "mpvcore/mp_msg.h"
 
 struct w32_context {
     HGLRC context;

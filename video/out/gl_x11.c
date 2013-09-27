@@ -26,7 +26,9 @@
 #include "gl_header_fixes.h"
 
 #include "x11_common.h"
-#include "gl_common.h"
+#include "gl_context.h"
+#include "vo.h"
+#include "mpvcore/mp_msg.h"
 
 struct glx_context {
     XVisualInfo *vinfo;

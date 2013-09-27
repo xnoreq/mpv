@@ -31,10 +31,11 @@
 #include "gl_video.h"
 
 #include "mpvcore/bstr.h"
-#include "gl_common.h"
+#include "gl_utils.h"
 #include "gl_osd.h"
 #include "filter_kernels.h"
 #include "aspect.h"
+#include "video/mp_image.h"
 #include "video/memcpy_pic.h"
 #include "bitmap_packer.h"
 #include "dither.h"

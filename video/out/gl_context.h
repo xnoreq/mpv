@@ -29,13 +29,7 @@
 #include <stdbool.h>
 
 #include "config.h"
-#include "mpvcore/mp_msg.h"
 #include "mpvcore/bstr.h"
-
-#include "vo.h"
-#include "video/csputils.h"
-
-#include "video/mp_image.h"
 
 #if defined(CONFIG_GL_COCOA) && !defined(CONFIG_GL_X11)
 #ifdef GL_VERSION_3_0
@@ -54,26 +48,6 @@
 
 struct GL;
 typedef struct GL GL;
-
-void glAdjustAlignment(GL *gl, int stride);
-int glFmt2bpp(GLenum format, GLenum type);
-void glUploadTex(GL *gl, GLenum target, GLenum format, GLenum type,
-                 const void *dataptr, int stride,
-                 int x, int y, int w, int h, int slice);
-void glClearTex(GL *gl, GLenum target, GLenum format, GLenum type,
-                int x, int y, int w, int h, uint8_t val, void **scratch);
-void glDownloadTex(GL *gl, GLenum target, GLenum format, GLenum type,
-                   void *dataptr, int stride);
-void glCheckError(GL *gl, struct mp_log *log, const char *info);
-mp_image_t *glGetWindowScreenshot(GL *gl);
-
-#define GL_3D_RED_CYAN        1
-#define GL_3D_GREEN_MAGENTA   2
-#define GL_3D_QUADBUFFER      3
-
-void glEnable3DLeft(GL *gl, int type);
-void glEnable3DRight(GL *gl, int type);
-void glDisable3D(GL *gl, int type);
 
 enum {
     MPGL_CAP_GL                 = (1 << 0),     // GL was successfully loaded
@@ -166,12 +140,9 @@ void mpgl_set_backend_wayland(MPGLContext *ctx);
 
 void *mp_getdladdr(const char *s);
 
+struct mp_log;
 void mpgl_load_functions(GL *gl, void *(*getProcAddress)(const GLubyte *),
                          const char *ext2, struct mp_log *log);
-
-// print a multi line string with line numbers (e.g. for shader sources)
-// log, lev: module and log level, as in mp_msg()
-void mp_log_source(struct mp_log *log, int lev, const char *src);
 
 //function pointers loaded from the OpenGL library
 struct GL {

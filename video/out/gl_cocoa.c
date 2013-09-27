@@ -20,7 +20,8 @@
  */
 
 #include "cocoa_common.h"
-#include "gl_common.h"
+#include "gl_context.h"
+#include "vo.h"
 
 static bool config_window_cocoa(struct MPGLContext *ctx, uint32_t d_width,
                                 uint32_t d_height, uint32_t flags)

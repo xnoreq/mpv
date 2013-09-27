@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <inttypes.h>
 
-#include "gl_common.h"
+#include "gl_context.h"
 #include "sub/sub.h"
 
 struct mpgl_osd_part {

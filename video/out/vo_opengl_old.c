@@ -38,7 +38,8 @@
 #include "video/mp_image.h"
 #include "sub/sub.h"
 
-#include "gl_common.h"
+#include "gl_context.h"
+#include "gl_utils.h"
 #include "gl_osd.h"
 #include "video/memcpy_pic.h"
 #include "pnm_loader.h"

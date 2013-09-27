@@ -19,6 +19,10 @@
 #include <assert.h>
 #include <libavutil/common.h>
 
+#include "mpvcore/mp_talloc.h"
+#include "mpvcore/mp_msg.h"
+
+#include "gl_utils.h"
 #include "bitmap_packer.h"
 
 #include "gl_osd.h"

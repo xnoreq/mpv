@@ -33,12 +33,14 @@
 #include "video/out/vo.h"
 #include "sub/sub.h"
 #include "mpvcore/m_option.h"
+#include "mpvcore/mp_msg.h"
 
 #include "video/csputils.h"
 #include "video/vfcap.h"
 #include "video/mp_image.h"
 
-#include "gl_common.h"
+#include "gl_context.h"
+#include "gl_utils.h"
 #include "gl_osd.h"
 #include "cocoa_common.h"
 

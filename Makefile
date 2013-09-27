@@ -82,11 +82,11 @@ SOURCES-$(DIRECT3D)             += video/out/vo_direct3d.c \
                                    video/out/w32_common.c
 SOURCES-$(DSOUND)               += audio/out/ao_dsound.c
 SOURCES-$(WASAPI)               += audio/out/ao_wasapi.c
-SOURCES-$(GL)                   += video/out/gl_common.c video/out/gl_osd.c \
+SOURCES-$(GL)                   += video/out/gl_context.c video/out/gl_osd.c \
                                    video/out/vo_opengl.c video/out/gl_lcms.c \
                                    video/out/gl_video.c video/out/dither.c \
                                    video/out/vo_opengl_old.c \
-                                   video/out/pnm_loader.c
+                                   video/out/pnm_loader.c video/out/gl_utils.c
 
 SOURCES-$(ENCODING)             += video/out/vo_lavc.c audio/out/ao_lavc.c \
                                    mpvcore/encode_lavc.c

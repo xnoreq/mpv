@@ -21,7 +21,9 @@
 #include <EGL/eglext.h>
 
 #include "wayland_common.h"
-#include "gl_common.h"
+#include "gl_context.h"
+#include "vo.h"
+#include "mpvcore/mp_msg.h"
 
 struct egl_context {
     EGLSurface egl_surface;

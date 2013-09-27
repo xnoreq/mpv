@@ -20,7 +20,7 @@
 #include <stdbool.h>
 
 #include "sub/sub.h"
-#include "gl_common.h"
+#include "gl_context.h"
 
 struct lut3d {
     uint16_t *data;
@@ -51,6 +51,9 @@ struct gl_video_opts {
 extern const struct m_sub_options gl_video_conf;
 
 struct gl_video;
+struct mp_image_params;
+struct mp_csp_details;
+struct mp_rect;
 
 struct gl_video *gl_video_init(GL *gl, struct mp_log *log);
 void gl_video_uninit(struct gl_video *p);
