@@ -204,14 +204,21 @@ struct vo_driver {
     void (*draw_osd)(struct vo *vo, struct osd_state *osd);
 
     /*
-     * Blit/Flip buffer to the screen. Must be called after each frame!
-     * pts_us is the frame presentation time, linked to mp_time_us().
-     * pts_us is 0 if the frame should be presented immediately.
-     * duration is estimated time in us until the next frame is shown.
-     * duration is -1 if it is unknown or unset.
+     * Blit/Flip buffer to the screen. This is called after each frame.
      */
     void (*flip_page)(struct vo *vo);
-    void (*flip_page_timed)(struct vo *vo, int64_t pts_us, int duration);
+
+    /*
+     * Do a timed flip (optional, will be used instead of flip_page).
+     * pts_us:   time when to show frame (microseconds, uses mp_time_us())
+     *           0 means show frame as soon as possible
+     * duration: offset to the next frame (pts_us + duration = next frame PTS)
+     *           This is an estimation, and can slightly off (e.g. a/v sync).
+     *           -1 means next frame PTS unknown
+     * Returns whether the function did a blocking wait until flipped.
+     * (The classic flip_page on the other hand is expected to always block.)
+     */
+    bool (*flip_page_timed)(struct vo *vo, int64_t pts_us, int duration);
 
     /*
      * Closes driver. Should restore the original state of the system.
@@ -301,7 +308,7 @@ int vo_get_buffered_frame(struct vo *vo, bool eof);
 void vo_skip_frame(struct vo *vo);
 void vo_new_frame_imminent(struct vo *vo);
 void vo_draw_osd(struct vo *vo, struct osd_state *osd);
-void vo_flip_page(struct vo *vo, unsigned int pts_us, int duration);
+bool vo_flip_page(struct vo *vo, unsigned int pts_us, int duration);
 void vo_check_events(struct vo *vo);
 void vo_seek_reset(struct vo *vo);
 void vo_destroy(struct vo *vo);

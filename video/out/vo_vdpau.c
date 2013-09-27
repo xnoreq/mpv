@@ -1111,7 +1111,7 @@ static inline uint64_t prev_vs2(struct vdpctx *vc, uint64_t ts, int shift)
     return ts - offset;
 }
 
-static void flip_page_timed(struct vo *vo, int64_t pts_us, int duration)
+static bool flip_page_timed(struct vo *vo, int64_t pts_us, int duration)
 {
     struct vdpctx *vc = vo->priv;
     struct vdp_functions *vdp = vc->vdp;
@@ -1119,7 +1119,7 @@ static void flip_page_timed(struct vo *vo, int64_t pts_us, int duration)
     uint32_t vsync_interval = vc->vsync_interval;
 
     if (handle_preemption(vo) < 0)
-        return;
+        return false;
 
     if (duration > INT_MAX / 1000)
         duration = -1;
@@ -1176,7 +1176,7 @@ static void flip_page_timed(struct vo *vo, int64_t pts_us, int duration)
     pts = FFMAX(pts, vc->last_queue_time + vsync_interval);
     pts = FFMAX(pts, now);
     if (npts < PREV_VSYNC(pts) + vsync_interval)
-        return;
+        return false;
 
     int num_flips = update_presentation_queue_status(vo);
     vsync = vc->recent_vsync_time + num_flips * vc->vsync_interval;
@@ -1185,7 +1185,7 @@ static void flip_page_timed(struct vo *vo, int64_t pts_us, int duration)
     pts = FFMAX(pts, vsync + (vsync_interval >> 2));
     vsync = PREV_VSYNC(pts);
     if (npts < vsync + vsync_interval)
-        return;
+        return false;
     pts = vsync + (vsync_interval >> 2);
     vdp_st =
         vdp->presentation_queue_display(vc->flip_queue,
@@ -1198,6 +1198,7 @@ static void flip_page_timed(struct vo *vo, int64_t pts_us, int duration)
     vc->last_ideal_time = ideal_pts;
     vc->dropped_frame = false;
     vc->surface_num = WRAP_ADD(vc->surface_num, 1, vc->num_output_surfaces);
+    return false;
 }
 
 static void release_decoder_surface(void *ptr)

@@ -3725,10 +3725,10 @@ static void run_playloop(struct MPContext *mpctx)
                 diff = 10;
             duration = diff * 1e6;
         }
-        vo_flip_page(vo, pts_us | 1, duration);
+        bool flip_blocked = vo_flip_page(vo, pts_us | 1, duration);
 
         mpctx->last_vo_flip_duration = (mp_time_us() - t2) * 0.000001;
-        if (vo->driver->flip_page_timed) {
+        if (!flip_blocked) {
             // No need to adjust sync based on flip speed
             mpctx->last_vo_flip_duration = 0;
             // For print_status - VO call finishing early is OK for sync
