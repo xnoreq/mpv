@@ -644,11 +644,9 @@ alsa_error: ;
 static int play(struct ao *ao, void *data, int len, int flags)
 {
     struct priv *p = ao->priv;
-    int num_frames;
-    snd_pcm_sframes_t res = 0;
     if (!(flags & AOPLAY_FINAL_CHUNK))
         len = len / p->outburst * p->outburst;
-    num_frames = len / p->bytes_per_sample;
+    int num_frames = len / p->bytes_per_sample;
 
     if (!p->alsa) {
         MP_ERR(ao, "Device configuration error.");
@@ -658,26 +656,13 @@ static int play(struct ao *ao, void *data, int len, int flags)
     if (num_frames == 0)
         return 0;
 
-    do {
-        res = snd_pcm_writei(p->alsa, data, num_frames);
-
-        if (res == -EINTR) {
-            /* nothing to do */
-            res = 0;
-        } else if (res == -ESTRPIPE) {  /* suspend */
-            MP_INFO(ao, "PCM in suspend mode, trying to resume.\n");
-            while ((res = snd_pcm_resume(p->alsa)) == -EAGAIN)
-                sleep(1);
-        }
-        if (res < 0) {
-            MP_ERR(ao, "Write error: %s\n", snd_strerror(res));
-            res = snd_pcm_prepare(p->alsa);
-            int err = res;
-            CHECK_ALSA_ERROR("pcm prepare error");
-            res = 0;
-        }
-    } while (res == 0);
-
+    snd_pcm_sframes_t res = snd_pcm_writei(p->alsa, data, num_frames);
+    if (res < 0)
+        res = snd_pcm_recover(p->alsa, res, 0);
+    if (res < 0) {
+        int err = res;
+        CHECK_ALSA_ERROR("snd_pcm_recover error");
+    }
     return res < 0 ? -1 : res * p->bytes_per_sample;
 
 alsa_error:
