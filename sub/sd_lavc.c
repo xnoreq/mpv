@@ -26,6 +26,7 @@
 #include "mpvcore/av_common.h"
 #include "mpvcore/options.h"
 #include "demux/stheader.h"
+#include "video/mp_image.h"
 #include "sd.h"
 #include "dec_sub.h"
 #include "sub.h"
@@ -206,6 +207,7 @@ static void get_bitmaps(struct sd *sd, struct mp_osd_res d, double pts,
                         struct sub_bitmaps *res)
 {
     struct sd_lavc_priv *priv = sd->priv;
+    struct MPOpts *opts = sd->opts;
 
     if (priv->pts != MP_NOPTS_VALUE && pts < priv->pts)
         return;
@@ -222,11 +224,12 @@ static void get_bitmaps(struct sd *sd, struct mp_osd_res d, double pts,
     int vidh = d.h - d.mt - d.mb;
     double xscale = (double)vidw / inw;
     double yscale = (double)vidh / inh;
-    if (priv->avctx->codec_id == AV_CODEC_ID_DVD_SUBTITLE) {
+    if (priv->avctx->codec_id == AV_CODEC_ID_DVD_SUBTITLE &&
+            opts->stretch_dvd_subs) {
         // For DVD subs, try to keep the subtitle PAR at display PAR.
         double video_par =
-            * (ctx->video_params.d_w / (double)ctx->video_params.d_h)
-            / (ctx->video_params.w   / (double)ctx->video_params.h);
+              (priv->video_params.d_w / (double)priv->video_params.d_h)
+            / (priv->video_params.w   / (double)priv->video_params.h);
         if (video_par > 1.0) {
             xscale /= video_par;
         } else {
@@ -279,7 +282,6 @@ static int control(struct sd *sd, enum sd_ctrl cmd, void *arg)
     case SD_CTRL_SET_VIDEO_PARAMS:
         priv->video_params = *(struct mp_image_params *)arg;
         return CONTROL_OK;
-    }
     default:
         return CONTROL_UNKNOWN;
     }
