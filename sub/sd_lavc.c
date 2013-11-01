@@ -41,6 +41,7 @@ struct sd_lavc_priv {
     bool bitmaps_changed;
     double pts;
     double endpts;
+    struct mp_image_params video_params;
 };
 
 static bool supports_format(const char *format)
@@ -223,10 +224,13 @@ static void get_bitmaps(struct sd *sd, struct mp_osd_res d, double pts,
     double yscale = (double)vidh / inh;
     if (priv->avctx->codec_id == AV_CODEC_ID_DVD_SUBTITLE) {
         // For DVD subs, try to keep the subtitle PAR at display PAR.
-        if (d.video_par > 1.0) {
-            xscale /= d.video_par;
+        double video_par =
+            * (ctx->video_params.d_w / (double)ctx->video_params.d_h)
+            / (ctx->video_params.w   / (double)ctx->video_params.h);
+        if (video_par > 1.0) {
+            xscale /= video_par;
         } else {
-            yscale *= d.video_par;
+            yscale *= video_par;
         }
     }
     int cx = vidw / 2 - (int)(inw * xscale) / 2;
@@ -268,12 +272,26 @@ static void uninit(struct sd *sd)
     talloc_free(priv);
 }
 
+static int control(struct sd *sd, enum sd_ctrl cmd, void *arg)
+{
+    struct sd_lavc_priv *priv = sd->priv;
+    switch (cmd) {
+    case SD_CTRL_SET_VIDEO_PARAMS:
+        priv->video_params = *(struct mp_image_params *)arg;
+        return CONTROL_OK;
+    }
+    default:
+        return CONTROL_UNKNOWN;
+    }
+}
+
 const struct sd_functions sd_lavc = {
     .name = "lavc",
     .supports_format = supports_format,
     .init = init,
     .decode = decode,
     .get_bitmaps = get_bitmaps,
+    .control = control,
     .reset = reset,
     .uninit = uninit,
 };
