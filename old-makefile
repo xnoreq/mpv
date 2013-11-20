@@ -190,6 +190,7 @@ SOURCES = audio/audio.c \
           demux/ebml.c \
           demux/mf.c \
           demux/packet.c \
+          demux/thread_wrapper.c \
           mpvcore/asxparser.c \
           mpvcore/av_common.c \
           mpvcore/av_log.c \

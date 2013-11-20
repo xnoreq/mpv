@@ -189,6 +189,8 @@ typedef struct MPContext {
     struct stream *stream;
     struct demuxer *demuxer;
 
+    struct demuxer *original_demuxer;
+
     struct track **tracks;
     int num_tracks;
 

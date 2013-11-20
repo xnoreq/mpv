@@ -111,6 +111,8 @@ void uninit_player(struct MPContext *mpctx, unsigned int mask)
         mpctx->initialized_flags &= ~INITIALIZED_DEMUXER;
         assert(!(mpctx->initialized_flags &
                  (INITIALIZED_VCODEC | INITIALIZED_ACODEC | INITIALIZED_SUB)));
+        if (mpctx->original_demuxer)
+            mpctx->stream = mpctx->original_demuxer->stream;
         for (int i = 0; i < mpctx->num_tracks; i++) {
             talloc_free(mpctx->tracks[i]);
         }
@@ -130,6 +132,9 @@ void uninit_player(struct MPContext *mpctx, unsigned int mask)
         talloc_free(mpctx->sources);
         mpctx->sources = NULL;
         mpctx->demuxer = NULL;
+        if (mpctx->original_demuxer)
+            free_demuxer(mpctx->original_demuxer);
+        mpctx->original_demuxer = NULL;
         mpctx->num_sources = 0;
         talloc_free(mpctx->timeline);
         mpctx->timeline = NULL;
@@ -1089,6 +1094,16 @@ goto_reopen_demuxer: ;
     mpctx->audio_delay = opts->audio_delay;
 
     mpctx->demuxer = demux_open(mpctx->stream, opts->demuxer_name, NULL, opts);
+    if (1 && mpctx->demuxer) {
+        mpctx->original_demuxer = mpctx->demuxer;
+        mpctx->demuxer = demux_create_thread_wrapper(mpctx->demuxer);
+        if (!mpctx->demuxer)
+            abort();
+        // We must not access the original stream from now on, because the
+        // demuxer thread reads from it.
+        mpctx->stream = mpctx->demuxer->stream;
+    }
+
     mpctx->master_demuxer = mpctx->demuxer;
     if (!mpctx->demuxer) {
         MP_ERR(mpctx, "Failed to recognize file format.\n");

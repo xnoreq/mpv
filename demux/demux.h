@@ -61,6 +61,7 @@ enum demux_ctrl {
     DEMUXER_CTRL_GET_TIME_LENGTH,
     DEMUXER_CTRL_GET_START_TIME,
     DEMUXER_CTRL_RESYNC,
+    DEMUXER_CTRL_FLUSH,
     DEMUXER_CTRL_IDENTIFY_PROGRAM,
 };
 
@@ -235,6 +236,10 @@ struct sh_stream *new_sh_stream(struct demuxer *demuxer, enum stream_type type);
 
 struct demuxer *demux_open(struct stream *stream, char *force_format,
                            struct demuxer_params *params, struct MPOpts *opts);
+
+// Functions used by thread_wrapper.c
+struct demuxer *demux_create_thread_wrapper(struct demuxer *demuxer);
+int demux_fill_buffer(demuxer_t *demux);
 
 void demux_flush(struct demuxer *demuxer);
 int demux_seek(struct demuxer *demuxer, float rel_seek_secs, int flags);
