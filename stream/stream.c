@@ -785,20 +785,11 @@ int stream_enable_cache_percent(stream_t **stream, int64_t stream_cache_size,
                                (stream_cache_seek_min_percent / 100.0));
 }
 
-static int stream_enable_cache(stream_t **stream, int64_t size, int64_t min,
-                               int64_t seek_limit)
+stream_t *stream_create_wrapper(stream_t *orig)
 {
-    stream_t *orig = *stream;
-
-    if (orig->mode != STREAM_READ)
-        return 1;
-
     stream_t *cache = new_stream();
     cache->uncached_type = orig->type;
     cache->uncached_stream = orig;
-    cache->flags |= MP_STREAM_SEEK;
-    cache->mode = STREAM_READ;
-    cache->read_chunk = 4 * STREAM_BUFFER_SIZE;
 
     cache->url = talloc_strdup(cache, orig->url);
     cache->mime_type = talloc_strdup(cache, orig->mime_type);
@@ -808,6 +799,23 @@ static int stream_enable_cache(stream_t **stream, int64_t size, int64_t min,
     cache->opts = orig->opts;
     cache->start_pos = orig->start_pos;
     cache->end_pos = orig->end_pos;
+    cache->read_chunk = orig->read_chunk;
+
+    return cache;
+}
+
+static int stream_enable_cache(stream_t **stream, int64_t size, int64_t min,
+                               int64_t seek_limit)
+{
+    stream_t *orig = *stream;
+
+    if (orig->mode != STREAM_READ)
+        return 1;
+
+    stream_t *cache = stream_create_wrapper(orig);
+    cache->flags |= MP_STREAM_SEEK;
+    cache->mode = STREAM_READ;
+    cache->read_chunk = 4 * STREAM_BUFFER_SIZE;
 
     int res = -1;
 

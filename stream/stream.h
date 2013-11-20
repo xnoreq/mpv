@@ -180,6 +180,8 @@ int stream_enable_cache_percent(stream_t **stream, int64_t stream_cache_size,
                                 float stream_cache_min_percent,
                                 float stream_cache_seek_min_percent);
 
+stream_t *stream_create_wrapper(stream_t *orig);
+
 // Internal
 int stream_cache_init(stream_t *cache, stream_t *stream, int64_t size,
                       int64_t min, int64_t seek_limit);
