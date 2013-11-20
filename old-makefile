@@ -64,7 +64,7 @@ SOURCES-$(PRIORITY)             += osdep/priority.c
 SOURCES-$(PVR)                  += stream/stream_pvr.c
 SOURCES-$(RADIO)                += stream/stream_radio.c
 SOURCES-$(RADIO_CAPTURE)        += stream/audio_in.c
-SOURCES-$(STREAM_CACHE)         += stream/cache.c
+SOURCES-$(STREAM_CACHE)         += stream/cache.c stream/cache_ctrl.c
 
 SOURCES-$(TV)                   += stream/stream_tv.c stream/tv.c \
                                    stream/frequencies.c stream/tvi_dummy.c

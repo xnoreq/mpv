@@ -55,6 +55,7 @@
 #include "mpvcore/mp_msg.h"
 
 #include "stream.h"
+#include "cache_ctrl.h"
 #include "mpvcore/mp_common.h"
 
 
@@ -97,14 +98,7 @@ struct priv {
     bool control_flush;
 
     // Cached STREAM_CTRLs
-    double stream_time_length;
-    double stream_start_time;
-    int64_t stream_size;
-    bool stream_manages_timeline;
-    unsigned int stream_num_chapters;
-    int stream_cache_idle;
-    int stream_cache_fill;
-    char **stream_metadata;
+    struct stream_cache_ctrls *cache_ctrls;
 };
 
 // Store additional per-byte metadata. Since per-byte would be way too
@@ -281,35 +275,13 @@ static bool cache_fill(struct priv *s)
     return true;
 }
 
-static void update_cached_controls(struct priv *s)
-{
-    unsigned int ui;
-    double d;
-    char **m;
-    s->stream_time_length = 0;
-    if (stream_control(s->stream, STREAM_CTRL_GET_TIME_LENGTH, &d) == STREAM_OK)
-        s->stream_time_length = d;
-    s->stream_start_time = MP_NOPTS_VALUE;
-    if (stream_control(s->stream, STREAM_CTRL_GET_START_TIME, &d) == STREAM_OK)
-        s->stream_start_time = d;
-    s->stream_manages_timeline = false;
-    if (stream_control(s->stream, STREAM_CTRL_MANAGES_TIMELINE, NULL) == STREAM_OK)
-        s->stream_manages_timeline = true;
-    s->stream_num_chapters = 0;
-    if (stream_control(s->stream, STREAM_CTRL_GET_NUM_CHAPTERS, &ui) == STREAM_OK)
-        s->stream_num_chapters = ui;
-    if (stream_control(s->stream, STREAM_CTRL_GET_METADATA, &m) == STREAM_OK) {
-        talloc_free(s->stream_metadata);
-        s->stream_metadata = talloc_steal(s, m);
-    }
-    stream_update_size(s->stream);
-    s->stream_size = s->stream->end_pos;
-}
-
 // the core might call these every frame, so cache them...
 static int cache_get_cached_control(stream_t *cache, int cmd, void *arg)
 {
     struct priv *s = cache->priv;
+    int r = stream_cache_ctrl_get(s->cache_ctrls, cmd, arg);
+    if (r != STREAM_ERROR)
+        return r;
     switch (cmd) {
     case STREAM_CTRL_GET_CACHE_SIZE:
         *(int64_t *)arg = s->buffer_size;
@@ -320,22 +292,8 @@ static int cache_get_cached_control(stream_t *cache, int cmd, void *arg)
     case STREAM_CTRL_GET_CACHE_IDLE:
         *(int *)arg = s->idle;
         return STREAM_OK;
-    case STREAM_CTRL_GET_TIME_LENGTH:
-        *(double *)arg = s->stream_time_length;
-        return s->stream_time_length ? STREAM_OK : STREAM_UNSUPPORTED;
-    case STREAM_CTRL_GET_START_TIME:
-        *(double *)arg = s->stream_start_time;
-        return s->stream_start_time !=
-               MP_NOPTS_VALUE ? STREAM_OK : STREAM_UNSUPPORTED;
-    case STREAM_CTRL_GET_SIZE:
-        *(int64_t *)arg = s->stream_size;
-        return STREAM_OK;
-    case STREAM_CTRL_MANAGES_TIMELINE:
-        return s->stream_manages_timeline ? STREAM_OK : STREAM_UNSUPPORTED;
-    case STREAM_CTRL_GET_NUM_CHAPTERS:
-        *(unsigned int *)arg = s->stream_num_chapters;
-        return STREAM_OK;
     case STREAM_CTRL_GET_CURRENT_TIME: {
+        // Awful hack for DVD and BD.
         if (s->read_filepos >= s->min_filepos &&
             s->read_filepos <= s->max_filepos &&
             s->min_filepos < s->max_filepos)
@@ -352,34 +310,8 @@ static int cache_get_cached_control(stream_t *cache, int cmd, void *arg)
         }
         return STREAM_UNSUPPORTED;
     }
-    case STREAM_CTRL_GET_METADATA: {
-        if (s->stream_metadata && s->stream_metadata[0]) {
-            char **m = talloc_new(NULL);
-            int num_m = 0;
-            for (int n = 0; s->stream_metadata[n]; n++) {
-                char *t = talloc_strdup(m, s->stream_metadata[n]);
-                MP_TARRAY_APPEND(NULL, m, num_m, t);
-            }
-            MP_TARRAY_APPEND(NULL, m, num_m, NULL);
-            MP_TARRAY_APPEND(NULL, m, num_m, NULL);
-            *(char ***)arg = m;
-            return STREAM_OK;
-        }
-        return STREAM_UNSUPPORTED;
-    }
     }
     return STREAM_ERROR;
-}
-
-static bool control_needs_flush(int stream_ctrl)
-{
-    switch (stream_ctrl) {
-    case STREAM_CTRL_SEEK_TO_TIME:
-    case STREAM_CTRL_SEEK_TO_CHAPTER:
-    case STREAM_CTRL_SET_ANGLE:
-        return true;
-    }
-    return false;
 }
 
 // Runs in the cache thread
@@ -395,7 +327,7 @@ static void cache_execute_control(struct priv *s)
     if (pos_changed && !ok) {
         mp_msg(MSGT_STREAM, MSGL_ERR, "STREAM_CTRL changed stream pos but "
                "returned error, this is not allowed!\n");
-    } else if (pos_changed || (ok && control_needs_flush(s->control))) {
+    } else if (pos_changed || (ok && stream_cache_ctrl_needs_flush(s->control))) {
         mp_msg(MSGT_CACHE, MSGL_V, "Dropping cache due to control()\n");
         s->read_filepos = stream_tell(s->stream);
         s->control_flush = true;
@@ -410,11 +342,11 @@ static void *cache_thread(void *arg)
 {
     struct priv *s = arg;
     pthread_mutex_lock(&s->mutex);
-    update_cached_controls(s);
+    stream_cache_ctrl_update(s->cache_ctrls, s->stream);
     double last = mp_time_sec();
     while (s->control != CACHE_CTRL_QUIT) {
         if (mp_time_sec() - last > CACHE_UPDATE_CONTROLS_TIME) {
-            update_cached_controls(s);
+            stream_cache_ctrl_update(s->cache_ctrls, s->stream);
             last = mp_time_sec();
         }
         if (s->control > 0) {
@@ -545,6 +477,7 @@ int stream_cache_init(stream_t *cache, stream_t *stream, int64_t size,
     }
 
     struct priv *s = talloc_zero(NULL, struct priv);
+    s->cache_ctrls = talloc_zero(s, struct stream_cache_ctrls);
 
     //64kb min_size
     s->fill_limit = FFMAX(16 * 1024, BYTE_META_CHUNK_SIZE * 2);
