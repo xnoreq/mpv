@@ -19,6 +19,7 @@
 #ifndef MPLAYER_DEMUX_PACKET_H
 #define MPLAYER_DEMUX_PACKET_H
 
+#include <stddef.h>
 #include <stdbool.h>
 #include <inttypes.h>
 
@@ -36,5 +37,17 @@ typedef struct demux_packet {
     void *allocation;
     struct AVPacket *avpacket;   // original libavformat packet (demux_lavf)
 } demux_packet_t;
+
+struct packet_queue;
+
+struct packet_queue *packet_queue_create(void *talloc_ctx);
+void packet_queue_add(struct packet_queue *pq, struct demux_packet *dp);
+struct demux_packet *packet_queue_get(struct packet_queue *pq);
+bool packet_queue_is_empty(struct packet_queue *pq);
+bool packet_queue_is_eof(struct packet_queue *pq);
+void packet_queue_set_eof(struct packet_queue *pq, bool state);
+double packet_queue_get_pts(struct packet_queue *pq);
+void packet_queue_flush(struct packet_queue *pq);
+void packet_queue_add_size(struct packet_queue *pq, size_t *size, int *count);
 
 #endif /* MPLAYER_DEMUX_PACKET_H */
