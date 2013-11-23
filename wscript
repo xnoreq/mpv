@@ -636,7 +636,17 @@ radio_and_tv_features = [
     }, {
         'name': '--tv-v4l2',
         'desc': 'Video4Linux2 TV interface',
-        'func': check_cc(header_name=['sys/time.h', 'linux/videodev2.h'])
+        'func': check_cc(header_name=['sys/time.h', 'linux/videodev2.h']),
+        'os_specific_checks': {
+            'os-netbsd': {
+                'deps': [ 'videoio' ],
+                'func': check_true,
+            },
+            'os-openbsd': {
+                'deps': [ 'videoio' ],
+                'func': check_true,
+            }
+        },
     }, {
         'name': '--libv4l2',
         'desc': 'libv4l2 support',
