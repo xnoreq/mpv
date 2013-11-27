@@ -61,6 +61,10 @@ bool ca_asbd_matches(AudioStreamBasicDescription target,
 bool ca_asbd_best(AudioStreamBasicDescription target,
                   AudioStreamBasicDescription matchee);
 
+int ca_asbd_better(AudioStreamBasicDescription target,
+                   AudioStreamBasicDescription fst,
+                   AudioStreamBasicDescription snd);
+
 OSStatus ca_property_listener(AudioObjectPropertySelector selector,
                               AudioObjectID object, uint32_t n_addresses,
                               const AudioObjectPropertyAddress addresses[],

@@ -260,19 +260,45 @@ static bool ca_match_fflags(int target, int matchee){
 bool ca_asbd_matches(AudioStreamBasicDescription target,
                      AudioStreamBasicDescription matchee)
 {
-    return target.mFormatID == matchee.mFormatID &&
-           target.mBitsPerChannel == matchee.mBitsPerChannel &&
-           ca_match_fflags(target.mBitsPerChannel, matchee.mBitsPerChannel);
+    return target.mFormatID == matchee.mFormatID;
 }
 
 bool ca_asbd_best(AudioStreamBasicDescription target,
                   AudioStreamBasicDescription matchee)
 {
     return ca_asbd_matches(target, matchee) &&
-        target.mSampleRate == matchee.mSampleRate &&
-        target.mChannelsPerFrame  == matchee.mChannelsPerFrame;
+        ca_match_fflags(target.mBitsPerChannel, matchee.mBitsPerChannel) &&
+        target.mBitsPerChannel   == matchee.mBitsPerChannel &&
+        target.mSampleRate       == matchee.mSampleRate &&
+        target.mChannelsPerFrame == matchee.mChannelsPerFrame;
 }
 
+int ca_asbd_better(AudioStreamBasicDescription target,
+                   AudioStreamBasicDescription fst,
+                   AudioStreamBasicDescription snd)
+{
+    if (fst.mSampleRate == 0.0)
+        return 1;
+
+    if (snd.mSampleRate == 0.0)
+        return -1;
+
+    if (fst.mChannelsPerFrame == target.mChannelsPerFrame &&
+        snd.mChannelsPerFrame != target.mChannelsPerFrame)
+        return -1;
+
+    if (fst.mChannelsPerFrame != target.mChannelsPerFrame &&
+        snd.mChannelsPerFrame == target.mChannelsPerFrame)
+        return 1;
+
+    // can't decide better format based on channel number, just use highest
+    // sample rate
+    if (fst.mSampleRate > snd.mSampleRate)
+        return -1;
+    else
+        return 1;
+
+}
 
 OSStatus ca_property_listener(AudioObjectPropertySelector selector,
                               AudioObjectID object, uint32_t n_addresses,

@@ -419,7 +419,8 @@ static int init_digital(struct ao *ao, AudioStreamBasicDescription asbd)
 
     CHECK_CA_ERROR("could not get number of streams");
 
-    for (int i = 0; i < n_streams && d->stream_idx < 0; i++) {
+    bool match = false;
+    for (int i = 0; i < n_streams && !match; i++) {
         err = CA_GET(streams[i], kAudioStreamPropertyPhysicalFormat,
                      &d->original_asbd);
         if (!CHECK_CA_WARN("could not get stream's physical format to "
@@ -436,30 +437,24 @@ static int init_digital(struct ao *ao, AudioStreamBasicDescription asbd)
         if (!CHECK_CA_WARN("could not get number of stream formats"))
             continue; // try next one
 
-        int req_rate_format = -1;
-        int max_rate_format = -1;
+        talloc_steal(streams, formats);
 
         d->stream = streams[i];
         d->stream_idx = i;
 
-        for (int j = 0; j < n_formats; j++)
-            // select the digital format that has exactly the same
-            // samplerate. If an exact match cannot be found, select
-            // the format with highest samplerate as backup.
-            if (ca_asbd_best(formats[j].mFormat, asbd)) {
-                req_rate_format = j;
-                break;
-            } else if (ca_asbd_matches(formats[j].mFormat, asbd) &&
-                ( max_rate_format < 0 || formats[j].mFormat.mSampleRate >
-                formats[max_rate_format].mFormat.mSampleRate))
-                max_rate_format = j;
+        for (int j = 0; j < n_formats && !match; j++) {
+            AudioStreamBasicDescription iter_asbd = formats[j].mFormat;
 
-        if (req_rate_format >= 0)
-            d->stream_asbd = formats[req_rate_format].mFormat;
-        else
-            d->stream_asbd = formats[max_rate_format].mFormat;
+            if (ca_asbd_best(iter_asbd, asbd)) {
+                d->stream_asbd  = iter_asbd;
+                match = true;
+            }
 
-        talloc_free(formats);
+            if (ca_asbd_matches(iter_asbd, asbd)) {
+                if (ca_asbd_better(asbd, iter_asbd, d->stream_asbd) < 0)
+                    d->stream_asbd = iter_asbd;
+            }
+        }
     }
 
     talloc_free(streams);
