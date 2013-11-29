@@ -201,7 +201,7 @@ coreaudio_error:
 }
 
 static int init_lpcm(struct ao *ao, AudioStreamBasicDescription asbd);
-static int init_digital(struct ao *ao, AudioStreamBasicDescription asbd);
+static int init_exclusive(struct ao *ao, AudioStreamBasicDescription asbd);
 
 static int init(struct ao *ao)
 {
@@ -293,7 +293,7 @@ static int init(struct ao *ao)
     ca_print_asbd(ao, "source format:", &asbd);
 
     if (p->opt_exclusive)
-        return init_digital(ao, asbd);
+        return init_exclusive(ao, asbd);
     else
         return init_lpcm(ao, asbd);
 
@@ -389,7 +389,7 @@ coreaudio_error:
     return CONTROL_ERROR;
 }
 
-static int init_digital(struct ao *ao, AudioStreamBasicDescription asbd)
+static int init_exclusive(struct ao *ao, AudioStreamBasicDescription asbd)
 {
     struct priv *p = ao->priv;
     struct priv_d *d = p->digital;
