@@ -285,7 +285,7 @@ static int init(struct ao *ao)
         if (!ao_chmap_sel_adjust(ao, &chmap_sel, &ao->channels))
             goto coreaudio_error;
 
-    } // closes if (!supports_digital)
+    } // closes if (!p->opt_exclusive)
 
     AudioStreamBasicDescription asbd =
         ca_make_asbd(ao->format, ao->samplerate, ao->channels.num);
