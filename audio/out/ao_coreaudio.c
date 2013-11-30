@@ -406,9 +406,6 @@ static int init_exclusive(struct ao *ao, AudioStreamBasicDescription asbd)
     err = ca_lock_device(p->device, &d->hog_pid);
     CHECK_CA_WARN("failed to set hogmode");
 
-    err = ca_disable_mixing(ao, p->device, &d->changed_mixing);
-    CHECK_CA_WARN("failed to disable mixing");
-
     AudioStreamID *streams;
     size_t n_streams;
 
@@ -570,9 +567,6 @@ static void uninit(struct ao *ao, bool immed)
 
         if (!ca_change_format(ao, d->stream, d->original_asbd))
             MP_WARN(ao, "can't revert to original device format");
-
-        err = ca_enable_mixing(ao, p->device, d->changed_mixing);
-        CHECK_CA_WARN("can't re-enable mixing");
 
         err = ca_unlock_device(p->device, &d->hog_pid);
         CHECK_CA_WARN("can't release hog mode");
