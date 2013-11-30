@@ -74,11 +74,12 @@ char *ca_asbd_repr(const AudioStreamBasicDescription *asbd)
        "%7.1fHz %" PRIu32 "bit [%s]"
        "[%" PRIu32 "][%" PRIu32 "][%" PRIu32 "]"
        "[%" PRIu32 "][%" PRIu32 "] "
-       "%s %s %s%s%s%s\n",
+       "%s %s %s %s%s%s%s\n",
        asbd->mSampleRate, asbd->mBitsPerChannel, format,
        asbd->mFormatFlags, asbd->mBytesPerPacket, asbd->mFramesPerPacket,
        asbd->mBytesPerFrame, asbd->mChannelsPerFrame,
        (flags & kAudioFormatFlagIsFloat) ? "float" : "int",
+       (flags & kAudioFormatFlagIsNonMixable) ? "" : "mixable",
        (flags & kAudioFormatFlagIsBigEndian) ? "BE" : "LE",
        (flags & kAudioFormatFlagIsSignedInteger) ? "S" : "U",
        (flags & kAudioFormatFlagIsPacked) ? " packed" : "",
@@ -94,6 +95,29 @@ void ca_print_asbd(struct ao *ao, const char *description,
     char *repr = ca_asbd_repr(asbd);
     MP_VERBOSE(ao, "%s %s", description, repr);
     talloc_free(repr);
+}
+
+static OSStatus print_formats(AudioStreamID stream, int stream_id,
+                             char *format_kind_repr, int format_kind,
+                             char **help)
+{
+    AudioStreamRangedDescription *formats;
+    size_t n_formats;
+    OSStatus err = CA_GET_ARY(stream, format_kind, &formats, &n_formats);
+
+    if (err != noErr)
+        return err;
+
+    *help = talloc_asprintf_append(*help, "    %s:\n", format_kind_repr);
+    for (int k = 0; k < n_formats; k++) {
+        char *repr = ca_asbd_repr(&formats[k].mFormat);
+        *help = talloc_asprintf_append(*help,
+             "      - Stream %d, Format %d: %s", stream_id, k, repr);
+        talloc_free(repr);
+    }
+
+    // talloc_free(formats);
+    return noErr;
 }
 
 void ca_print_device_list(struct ao *ao)
@@ -132,22 +156,18 @@ void ca_print_device_list(struct ao *ao)
         CHECK_CA_ERROR("could not get streams.");
 
         for (int j = 0; j < n_streams; j++) {
-            AudioStreamRangedDescription *formats;
-            size_t n_formats;
-            err = CA_GET_ARY(streams[j],
-                             kAudioStreamPropertyAvailablePhysicalFormats,
-                             &formats, &n_formats);
-            talloc_steal(streams, formats);
+            err = print_formats(streams[j], j, "Physical Formats",
+                                kAudioStreamPropertyAvailablePhysicalFormats,
+                                &help);
+            if (!CHECK_CA_WARN("could not get stream physical formats"))
+                continue;
 
-            if (!CHECK_CA_WARN("could not get stream formats"))
-                continue; // try next one
+            err = print_formats(streams[j], j, "Virtual Formats",
+                                kAudioStreamPropertyAvailableVirtualFormats,
+                                &help);
 
-            for (int k = 0; k < n_formats; k++) {
-                char *repr = ca_asbd_repr(&formats[k].mFormat);
-                help = talloc_asprintf_append(help,
-                    "    - Stream %d, Format %d: %s", j, k, repr);
-                talloc_free(repr);
-            }
+            if (!CHECK_CA_WARN("could not get stream virtual formats"))
+                continue;
         }
     }
 
