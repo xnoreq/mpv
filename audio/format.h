@@ -152,6 +152,7 @@ int af_str2fmt_short(bstr str);
 const char *af_fmt_to_str(int format);
 
 int af_fmt2bits(int format);
+int af_bits_to_mask(int bits);
 int af_fmt_change_bits(int format, int bits);
 
 int af_fmt_to_planar(int format);

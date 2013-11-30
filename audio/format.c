@@ -43,7 +43,7 @@ int af_fmt2bits(int format)
     return 0;
 }
 
-static int bits_to_mask(int bits)
+int af_bits_to_mask(int bits)
 {
     switch (bits) {
     case 8:  return AF_FORMAT_8BIT;
@@ -59,7 +59,7 @@ int af_fmt_change_bits(int format, int bits)
 {
     if (!af_fmt_is_valid(format) || (format & AF_FORMAT_SPECIAL_MASK))
         return 0;
-    int mask = bits_to_mask(bits);
+    int mask = af_bits_to_mask(bits);
     format = (format & ~AF_FORMAT_BITS_MASK) | mask;
     return af_fmt_is_valid(format) ? format : 0;
 }

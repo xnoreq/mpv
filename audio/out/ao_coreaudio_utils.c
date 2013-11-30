@@ -183,6 +183,38 @@ AudioStreamBasicDescription ca_make_asbd(int mp_format, int rate, int channels)
     return asbd;
 }
 
+int ca_make_mp_format(AudioStreamBasicDescription asbd)
+{
+
+    int format = AF_FORMAT_UNKNOWN;
+    const int bits  = asbd.mBitsPerChannel;
+    const int flags = asbd.mFormatFlags;
+
+    // convert bits
+    format |= af_bits_to_mask(bits);
+
+    // convert format
+    if (flags & kAudioFormatFlagIsFloat) {
+        format |= AF_FORMAT_F;
+    } else {
+        format |= AF_FORMAT_I;
+        if (flags & kAudioFormatFlagIsSignedInteger)
+            format |= AF_FORMAT_SI;
+        else
+            format |= AF_FORMAT_US;
+    }
+
+    // convert endianness
+    if (flags & kAudioFormatFlagIsBigEndian)
+        format |= AF_FORMAT_BE;
+    else
+        format |= AF_FORMAT_LE;
+
+    assert(format != 0);
+
+    return format;
+}
+
 bool ca_format_is_compressed(AudioStreamBasicDescription asbd)
 {
     switch (asbd.mFormatID)
@@ -325,12 +357,30 @@ OSStatus ca_stream_listener(AudioObjectID object, uint32_t n_addresses,
                                 object, n_addresses, addresses, data);
 }
 
-OSStatus ca_device_listener(AudioObjectID object, uint32_t n_addresses,
-                            const AudioObjectPropertyAddress addresses[],
-                            void *data)
+static OSStatus ca_change_stream_listening(AudioObjectID device,
+                                           void *flag, bool enabled)
 {
-    return ca_property_listener(kAudioDevicePropertyDeviceHasChanged,
-                                object, n_addresses, addresses, data);
+    AudioObjectPropertyAddress p_addr = (AudioObjectPropertyAddress) {
+        .mSelector = kAudioStreamPropertyPhysicalFormat,
+        .mScope    = kAudioObjectPropertyScopeGlobal,
+        .mElement  = kAudioObjectPropertyElementMaster,
+    };
+
+    if (enabled) {
+        return AudioObjectAddPropertyListener(
+            device, &p_addr, ca_stream_listener, flag);
+    } else {
+        return AudioObjectRemovePropertyListener(
+            device, &p_addr, ca_stream_listener, flag);
+    }
+}
+
+OSStatus ca_enable_stream_listener(AudioDeviceID device, void *flag) {
+    return ca_change_stream_listening(device, flag, true);
+}
+
+OSStatus ca_disable_stream_listener(AudioDeviceID device, void *flag) {
+    return ca_change_stream_listening(device, flag, false);
 }
 
 OSStatus ca_lock_device(AudioDeviceID device, pid_t *pid) {
@@ -400,50 +450,23 @@ OSStatus ca_enable_mixing(struct ao *ao, AudioDeviceID device, bool changed) {
     return noErr;
 }
 
-static OSStatus ca_change_device_listening(AudioDeviceID device,
-                                           void *flag, bool enabled)
-{
-    AudioObjectPropertyAddress p_addr = (AudioObjectPropertyAddress) {
-        .mSelector = kAudioDevicePropertyDeviceHasChanged,
-        .mScope    = kAudioObjectPropertyScopeGlobal,
-        .mElement  = kAudioObjectPropertyElementMaster,
-    };
-
-    if (enabled) {
-        return AudioObjectAddPropertyListener(
-            device, &p_addr, ca_device_listener, flag);
-    } else {
-        return AudioObjectRemovePropertyListener(
-            device, &p_addr, ca_device_listener, flag);
-    }
-}
-
-OSStatus ca_enable_device_listener(AudioDeviceID device, void *flag) {
-    return ca_change_device_listening(device, flag, true);
-}
-
-OSStatus ca_disable_device_listener(AudioDeviceID device, void *flag) {
-    return ca_change_device_listening(device, flag, false);
-}
-
 bool ca_change_format(struct ao *ao, AudioStreamID stream,
                       AudioStreamBasicDescription change_format)
 {
     OSStatus err = noErr;
-    AudioObjectPropertyAddress p_addr;
     volatile int stream_format_changed = 0;
 
+    AudioStreamBasicDescription actual_format;
+    err = CA_GET(stream, kAudioStreamPropertyPhysicalFormat, &actual_format);
+
+    if (ca_asbd_best(actual_format,  change_format)) {
+        MP_VERBOSE(ao, "requested format matches current physical format\n");
+        return true;
+    }
+
     ca_print_asbd(ao, "setting stream format:", &change_format);
+    err = ca_enable_stream_listener(stream, (void *)&stream_format_changed);
 
-    /* Install the callback. */
-    p_addr = (AudioObjectPropertyAddress) {
-        .mSelector = kAudioStreamPropertyPhysicalFormat,
-        .mScope    = kAudioObjectPropertyScopeGlobal,
-        .mElement  = kAudioObjectPropertyElementMaster,
-    };
-
-    err = AudioObjectAddPropertyListener(stream, &p_addr, ca_stream_listener,
-                                         (void *)&stream_format_changed);
     if (!CHECK_CA_WARN("can't add property listener during format change")) {
         return false;
     }
@@ -479,9 +502,7 @@ bool ca_change_format(struct ao *ao, AudioStreamID stream,
         }
     }
 
-    err = AudioObjectRemovePropertyListener(stream, &p_addr, ca_stream_listener,
-                                            (void *)&stream_format_changed);
-
+    err = ca_disable_stream_listener(stream, (void *)&stream_format_changed);
     if (!CHECK_CA_WARN("can't remove property listener")) {
         return false;
     }

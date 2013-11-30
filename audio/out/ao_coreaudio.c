@@ -252,6 +252,8 @@ static int init(struct ao *ao)
     p->device = selected_device;
 
     ao->format = af_fmt_from_planar(ao->format);
+    AudioStreamBasicDescription asbd =
+        ca_make_asbd(ao->format, ao->samplerate, ao->channels.num);
 
     if (!p->opt_exclusive) {
         AudioChannelLayout *layouts;
@@ -286,9 +288,6 @@ static int init(struct ao *ao)
             goto coreaudio_error;
 
     } // closes if (!p->opt_exclusive)
-
-    AudioStreamBasicDescription asbd =
-        ca_make_asbd(ao->format, ao->samplerate, ao->channels.num);
 
     ca_print_asbd(ao, "source format:", &asbd);
 
@@ -468,9 +467,10 @@ static int init_exclusive(struct ao *ao, AudioStreamBasicDescription asbd)
         goto coreaudio_error;
 
     void *changed = (void *) &(d->stream_asbd_changed);
-    err = ca_enable_device_listener(p->device, changed);
+    err = ca_enable_stream_listener(p->device, changed);
     CHECK_CA_ERROR("cannot install format change listener during init");
 
+    ao->format = ca_make_mp_format(d->stream_asbd);
     ao->samplerate = d->stream_asbd.mSampleRate;
     ao->bps = ao->samplerate *
                   (d->stream_asbd.mBytesPerPacket /
@@ -557,8 +557,8 @@ static void uninit(struct ao *ao, bool immed)
         struct priv_d *d = p->digital;
 
         void *changed = (void *) &(d->stream_asbd_changed);
-        err = ca_disable_device_listener(p->device, changed);
-        CHECK_CA_WARN("can't remove device listener, this may cause a crash");
+        err = ca_disable_stream_listener(p->device, changed);
+        CHECK_CA_WARN("can't remove stream listener, this may cause a crash");
 
         err = AudioDeviceStop(p->device, d->render_cb);
         CHECK_CA_WARN("failed to stop audio device");
