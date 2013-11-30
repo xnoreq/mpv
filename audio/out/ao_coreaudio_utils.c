@@ -210,8 +210,6 @@ int ca_make_mp_format(AudioStreamBasicDescription asbd)
     else
         format |= AF_FORMAT_LE;
 
-    assert(format != 0);
-
     return format;
 }
 
@@ -283,7 +281,7 @@ static bool ca_match_fflags(int target, int matchee){
     };
 
     for (int i=0; flags[i]; i++)
-        if (target & flags[i] != target & flags[i])
+        if (target & flags[i] != matchee & flags[i])
             return false;
 
     return true;
@@ -299,7 +297,7 @@ bool ca_asbd_best(AudioStreamBasicDescription target,
                   AudioStreamBasicDescription matchee)
 {
     return ca_asbd_matches(target, matchee) &&
-        ca_match_fflags(target.mBitsPerChannel, matchee.mBitsPerChannel) &&
+        ca_match_fflags(target.mFormatFlags, matchee.mFormatFlags) &&
         target.mBitsPerChannel   == matchee.mBitsPerChannel &&
         target.mSampleRate       == matchee.mSampleRate &&
         target.mChannelsPerFrame == matchee.mChannelsPerFrame;
@@ -480,34 +478,18 @@ bool ca_change_format(struct ao *ao, AudioStreamID stream,
     /* The AudioStreamSetProperty is not only asynchronious,
      * it is also not Atomic, in its behaviour.
      * Therefore we check 5 times before we really give up. */
-    bool format_set = false;
-    for (int i = 0; !format_set && i < 5; i++) {
-        for (int j = 0; !stream_format_changed && j < 50; j++)
-            mp_sleep_us(10000);
+    for (int j = 0; !stream_format_changed && j < 50; j++)
+        mp_sleep_us(10000);
 
-        if (stream_format_changed) {
-            stream_format_changed = 0;
-        } else {
-            MP_VERBOSE(ao, "reached timeout\n");
-        }
-
-        AudioStreamBasicDescription actual_format;
-        err = CA_GET(stream, kAudioStreamPropertyPhysicalFormat, &actual_format);
-
-        ca_print_asbd(ao, "actual format in use:", &actual_format);
-        if (actual_format.mSampleRate == change_format.mSampleRate &&
-            actual_format.mFormatID == change_format.mFormatID &&
-            actual_format.mFramesPerPacket == change_format.mFramesPerPacket) {
-            format_set = true;
-        }
-    }
+    if (!stream_format_changed)
+        MP_WARN(ao, "reached timeout\n");
 
     err = ca_disable_stream_listener(stream, (void *)&stream_format_changed);
     if (!CHECK_CA_WARN("can't remove property listener")) {
         return false;
     }
 
-    return format_set;
+    return true;
 }
 
 static const int speaker_map[][2] = {

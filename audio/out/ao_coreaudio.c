@@ -470,11 +470,13 @@ static int init_exclusive(struct ao *ao, AudioStreamBasicDescription asbd)
     err = ca_enable_stream_listener(p->device, changed);
     CHECK_CA_ERROR("cannot install format change listener during init");
 
-    ao->format = ca_make_mp_format(d->stream_asbd);
-    ao->samplerate = d->stream_asbd.mSampleRate;
+    AudioStreamBasicDescription actual_format;
+    err = CA_GET(d->stream, kAudioStreamPropertyPhysicalFormat, &actual_format);
+    ao->format = ca_make_mp_format(actual_format);
+    ao->samplerate = actual_format.mSampleRate;
     ao->bps = ao->samplerate *
-                  (d->stream_asbd.mBytesPerPacket /
-                   d->stream_asbd.mFramesPerPacket);
+                  (actual_format.mBytesPerPacket /
+                   actual_format.mFramesPerPacket);
 
     p->buffer = mp_ring_new(p, get_ring_size(ao));
     print_buffer(ao, p->buffer);
