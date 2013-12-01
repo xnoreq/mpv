@@ -375,11 +375,11 @@ OSStatus ca_stream_listener(AudioObjectID object, uint32_t n_addresses,
                                 object, n_addresses, addresses, data);
 }
 
-static OSStatus ca_change_stream_listening(AudioObjectID device,
+static OSStatus ca_change_stream_listening(AudioObjectID device, int sel,
                                            void *flag, bool enabled)
 {
     AudioObjectPropertyAddress p_addr = (AudioObjectPropertyAddress) {
-        .mSelector = kAudioStreamPropertyPhysicalFormat,
+        .mSelector = kAudioStreamPropertyVirtualFormat,
         .mScope    = kAudioObjectPropertyScopeGlobal,
         .mElement  = kAudioObjectPropertyElementMaster,
     };
@@ -393,12 +393,12 @@ static OSStatus ca_change_stream_listening(AudioObjectID device,
     }
 }
 
-OSStatus ca_enable_stream_listener(AudioDeviceID device, void *flag) {
-    return ca_change_stream_listening(device, flag, true);
+OSStatus ca_enable_stream_listener(AudioDeviceID device, int sel, void *flag) {
+    return ca_change_stream_listening(device, sel, flag, true);
 }
 
-OSStatus ca_disable_stream_listener(AudioDeviceID device, void *flag) {
-    return ca_change_stream_listening(device, flag, false);
+OSStatus ca_disable_stream_listener(AudioDeviceID device, int sel, void *flag) {
+    return ca_change_stream_listening(device, sel, flag, false);
 }
 
 OSStatus ca_lock_device(AudioDeviceID device, pid_t *pid) {
@@ -422,40 +422,55 @@ bool ca_change_format(struct ao *ao, AudioStreamID stream,
                       AudioStreamBasicDescription change_format)
 {
     OSStatus err = noErr;
-    volatile int stream_format_changed = 0;
-
+    volatile int pfmt_changed, vfmt_changed = 0;
     AudioStreamBasicDescription actual_format;
-    err = CA_GET(stream, kAudioStreamPropertyPhysicalFormat, &actual_format);
 
-    if (ca_asbd_best(actual_format,  change_format)) {
+    CA_GET(stream, CA_PFMT, &actual_format);
+
+    if (ca_asbd_best(actual_format, change_format)) {
         MP_VERBOSE(ao, "requested format matches current physical format\n");
         return true;
     }
 
     ca_print_asbd(ao, "setting stream format:", &change_format);
-    err = ca_enable_stream_listener(stream, (void *)&stream_format_changed);
 
-    if (!CHECK_CA_WARN("can't add property listener during format change")) {
+    err = ca_enable_stream_listener(stream, CA_VFMT, (void *)&vfmt_changed);
+    if (!CHECK_CA_WARN("can't add virtual format property listener")) {
         return false;
     }
 
-    /* Change the format. */
-    err = CA_SET(stream, kAudioStreamPropertyPhysicalFormat, &change_format);
+    err = ca_enable_stream_listener(stream, CA_PFMT, (void *)&pfmt_changed);
+    if (!CHECK_CA_WARN("can't add physical format property listener")) {
+        return false;
+    }
+
+    err = CA_SET(stream, CA_VFMT, &change_format);
+    if (!CHECK_CA_WARN("error changing virtual format")) {
+        return false;
+    }
+
+    err = CA_SET(stream, CA_PFMT, &change_format);
     if (!CHECK_CA_WARN("error changing physical format")) {
         return false;
     }
 
-    /* The AudioStreamSetProperty is not only asynchronious,
-     * it is also not Atomic, in its behaviour.
-     * Therefore we check 5 times before we really give up. */
-    for (int j = 0; !stream_format_changed && j < 50; j++)
+    // Setting the format is an asynchronous operation. We need to make sure
+    // the change actually took place before reporting back the current
+    // format to mpv's filter chain.
+    for (int j = 0; !pfmt_changed || !vfmt_changed && j < 50; j++)
         mp_sleep_us(10000);
 
-    if (!stream_format_changed)
-        MP_WARN(ao, "reached timeout\n");
+    if (!pfmt_changed || !vfmt_changed)
+        MP_WARN(ao, "reached timeout while polling for format changes. Will " \
+                    "default to using the current virtual format.\n");
 
-    err = ca_disable_stream_listener(stream, (void *)&stream_format_changed);
-    if (!CHECK_CA_WARN("can't remove property listener")) {
+    err = ca_disable_stream_listener(stream, CA_PFMT, (void *)&pfmt_changed);
+    if (!CHECK_CA_WARN("can't remove virtual format property listene")) {
+        return false;
+    }
+
+    err = ca_disable_stream_listener(stream, CA_VFMT, (void *)&pfmt_changed);
+    if (!CHECK_CA_WARN("can't remove physical format property listene")) {
         return false;
     }
 

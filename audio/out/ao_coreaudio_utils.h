@@ -27,6 +27,10 @@
 
 #define CA_CFSTR_ENCODING kCFStringEncodingASCII
 
+// CoreAudio names are too long
+#define CA_PFMT kAudioStreamPropertyPhysicalFormat
+#define CA_VFMT kAudioStreamPropertyVirtualFormat
+
 char *fourcc_repr(void *talloc_ctx, uint32_t code);
 bool check_ca_st(struct ao *ao, int level, OSStatus code, const char *message);
 
@@ -84,8 +88,8 @@ OSStatus ca_unlock_device(AudioDeviceID device, pid_t *pid);
 OSStatus ca_disable_mixing(struct ao *ao, AudioDeviceID device, bool *changed);
 OSStatus ca_enable_mixing(struct ao *ao, AudioDeviceID device, bool changed);
 
-OSStatus ca_enable_stream_listener(AudioDeviceID device, void *flag);
-OSStatus ca_disable_stream_listener(AudioDeviceID device, void *flag);
+OSStatus ca_enable_stream_listener(AudioDeviceID device, int sel, void *flag);
+OSStatus ca_disable_stream_listener(AudioDeviceID device, int sel, void *flag);
 
 bool ca_change_format(struct ao *ao, AudioStreamID stream,
                       AudioStreamBasicDescription change_format);

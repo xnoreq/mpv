@@ -464,11 +464,11 @@ static int init_exclusive(struct ao *ao, AudioStreamBasicDescription asbd)
         goto coreaudio_error;
 
     void *changed = (void *) &(d->stream_asbd_changed);
-    err = ca_enable_stream_listener(p->device, changed);
+    err = ca_enable_stream_listener(p->device, CA_PFMT, changed);
     CHECK_CA_ERROR("cannot install format change listener during init");
 
     AudioStreamBasicDescription actual_format;
-    err = CA_GET(d->stream, kAudioStreamPropertyPhysicalFormat, &actual_format);
+    err = CA_GET(d->stream, kAudioStreamPropertyVirtualFormat, &actual_format);
     ao->format = ca_make_mp_format(actual_format);
     ao->samplerate = actual_format.mSampleRate;
     ao->bps = ao->samplerate *
@@ -556,7 +556,7 @@ static void uninit(struct ao *ao, bool immed)
         struct priv_d *d = p->digital;
 
         void *changed = (void *) &(d->stream_asbd_changed);
-        err = ca_disable_stream_listener(p->device, changed);
+        err = ca_disable_stream_listener(p->device, CA_PFMT, changed);
         CHECK_CA_WARN("can't remove stream listener, this may cause a crash");
 
         err = AudioDeviceStop(p->device, d->render_cb);
