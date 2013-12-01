@@ -93,6 +93,7 @@ struct priv {
     int opt_device_id;
     int opt_list;
     int opt_exclusive;
+    int opt_bit_perfect;
 };
 
 static int get_ring_size(struct ao *ao)
@@ -388,6 +389,24 @@ coreaudio_error:
     return CONTROL_ERROR;
 }
 
+static bool ca_change_formats(struct ao *ao, AudioStreamID stream,
+                              AudioStreamBasicDescription asbd)
+{
+    struct priv *p = ao->priv;
+    bool changed_pfmt, changed_vfmt;
+
+    if (p->opt_bit_perfect) {
+        ca_print_asbd(ao, "setting physical stream format:", &asbd);
+        changed_pfmt = ca_change_format(ao, stream, asbd, CA_PFMT);
+    } else {
+        changed_pfmt = true;
+    }
+
+    ca_print_asbd(ao, "setting virtual stream format:", &asbd);
+    changed_vfmt = ca_change_format(ao, stream, asbd, CA_VFMT);
+    return changed_pfmt && changed_vfmt;
+}
+
 static int init_exclusive(struct ao *ao, AudioStreamBasicDescription asbd)
 {
     struct priv *p = ao->priv;
@@ -417,8 +436,7 @@ static int init_exclusive(struct ao *ao, AudioStreamBasicDescription asbd)
 
     bool match = false;
     for (int i = 0; i < n_streams && !match; i++) {
-        err = CA_GET(streams[i], kAudioStreamPropertyPhysicalFormat,
-                     &d->original_asbd);
+        err = CA_GET(streams[i], CA_PFMT, &d->original_asbd);
         if (!CHECK_CA_WARN("could not get stream's physical format to "
                            "revert to, getting the next one"))
             continue;
@@ -426,9 +444,10 @@ static int init_exclusive(struct ao *ao, AudioStreamBasicDescription asbd)
         AudioStreamRangedDescription *formats;
         size_t n_formats;
 
-        err = CA_GET_ARY(streams[i],
-                         kAudioStreamPropertyAvailablePhysicalFormats,
-                         &formats, &n_formats);
+        if (p->opt_bit_perfect)
+            err = CA_GET_ARY(streams[i], CA_PFMTS, &formats, &n_formats);
+        else
+            err = CA_GET_ARY(streams[i], CA_VFMTS, &formats, &n_formats);
 
         if (!CHECK_CA_WARN("could not get number of stream formats"))
             continue; // try next one
@@ -442,8 +461,9 @@ static int init_exclusive(struct ao *ao, AudioStreamBasicDescription asbd)
             AudioStreamBasicDescription iter_asbd = formats[j].mFormat;
 
             if (ca_asbd_best(iter_asbd, asbd)) {
-                d->stream_asbd  = iter_asbd;
+                d->stream_asbd = iter_asbd;
                 match = true;
+                break;
             }
 
             if (ca_asbd_matches(iter_asbd, asbd)) {
@@ -460,7 +480,8 @@ static int init_exclusive(struct ao *ao, AudioStreamBasicDescription asbd)
         goto coreaudio_error;
     }
 
-    if (!ca_change_format(ao, d->stream, d->stream_asbd))
+    ca_print_asbd(ao, "exact match on available format:", &d->stream_asbd);
+    if (!ca_change_formats(ao, d->stream, d->stream_asbd))
         goto coreaudio_error;
 
     void *changed = (void *) &(d->stream_asbd_changed);
@@ -468,7 +489,9 @@ static int init_exclusive(struct ao *ao, AudioStreamBasicDescription asbd)
     CHECK_CA_ERROR("cannot install format change listener during init");
 
     AudioStreamBasicDescription actual_format;
-    err = CA_GET(d->stream, kAudioStreamPropertyVirtualFormat, &actual_format);
+    CA_GET(d->stream, CA_VFMT, &actual_format);
+    ca_print_asbd(ao, "reporting format filter chain:", &actual_format);
+
     ao->format = ca_make_mp_format(actual_format);
     ao->samplerate = actual_format.mSampleRate;
     ao->bps = ao->samplerate *
@@ -505,7 +528,7 @@ static int play(struct ao *ao, void **data, int samples, int flags)
     // Check whether we need to reset the digital output stream.
     if (p->opt_exclusive && d->stream_asbd_changed) {
         d->stream_asbd_changed = 0;
-        if (!ca_change_format(ao, d->stream, d->stream_asbd)) {
+        if (!ca_change_formats(ao, d->stream, d->stream_asbd)) {
             MP_WARN(ao , "can't restore digital output\n");
         } else {
             MP_WARN(ao, "restoring digital output succeeded.\n");
@@ -565,7 +588,7 @@ static void uninit(struct ao *ao, bool immed)
         err = AudioDeviceDestroyIOProcID(p->device, d->render_cb);
         CHECK_CA_WARN("failed to remove device render callback");
 
-        if (!ca_change_format(ao, d->stream, d->original_asbd))
+        if (!ca_change_formats(ao, d->stream, d->original_asbd))
             MP_WARN(ao, "can't revert to original device format");
 
         err = ca_unlock_device(p->device, &d->hog_pid);
@@ -632,6 +655,7 @@ const struct ao_driver audio_out_coreaudio = {
         OPT_INT("device_id", opt_device_id, 0, OPTDEF_INT(-1)),
         OPT_FLAG("list", opt_list, 0),
         OPT_FLAG("exclusive", opt_exclusive, 0),
+        OPT_FLAG("bit_perfect", opt_bit_perfect, 0),
         {0}
     },
 };

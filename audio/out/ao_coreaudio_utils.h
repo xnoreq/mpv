@@ -31,6 +31,9 @@
 #define CA_PFMT kAudioStreamPropertyPhysicalFormat
 #define CA_VFMT kAudioStreamPropertyVirtualFormat
 
+#define CA_PFMTS kAudioStreamPropertyAvailablePhysicalFormats
+#define CA_VFMTS kAudioStreamPropertyAvailableVirtualFormats
+
 char *fourcc_repr(void *talloc_ctx, uint32_t code);
 bool check_ca_st(struct ao *ao, int level, OSStatus code, const char *message);
 
@@ -92,7 +95,7 @@ OSStatus ca_enable_stream_listener(AudioDeviceID device, int sel, void *flag);
 OSStatus ca_disable_stream_listener(AudioDeviceID device, int sel, void *flag);
 
 bool ca_change_format(struct ao *ao, AudioStreamID stream,
-                      AudioStreamBasicDescription change_format);
+                      AudioStreamBasicDescription change_format, int sel);
 
 void ca_bitmaps_from_layouts(struct ao *ao,
                              AudioChannelLayout *layouts, size_t n_layouts,

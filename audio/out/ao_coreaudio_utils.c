@@ -301,7 +301,7 @@ static bool ca_match_fflags(int target, int matchee){
     };
 
     for (int i=0; flags[i]; i++)
-        if (target & flags[i] != matchee & flags[i])
+        if ((target & flags[i]) != (matchee & flags[i]))
             return false;
 
     return true;
@@ -317,22 +317,25 @@ bool ca_asbd_best(AudioStreamBasicDescription target,
                   AudioStreamBasicDescription matchee)
 {
     return ca_asbd_matches(target, matchee) &&
-        ca_match_fflags(target.mFormatFlags, matchee.mFormatFlags) &&
         target.mBitsPerChannel   == matchee.mBitsPerChannel &&
         target.mSampleRate       == matchee.mSampleRate &&
-        target.mChannelsPerFrame == matchee.mChannelsPerFrame;
+        target.mChannelsPerFrame == matchee.mChannelsPerFrame &&
+        ca_match_fflags(target.mFormatFlags, matchee.mFormatFlags);
 }
 
 int ca_asbd_better(AudioStreamBasicDescription target,
                    AudioStreamBasicDescription fst,
                    AudioStreamBasicDescription snd)
 {
+    // Check if one of the asbd's is unitialized. If so return the other.
     if (fst.mSampleRate == 0.0)
         return 1;
 
     if (snd.mSampleRate == 0.0)
         return -1;
 
+    // Check if one of the asbd's has a matching channel count, while the
+    // other does not.
     if (fst.mChannelsPerFrame == target.mChannelsPerFrame &&
         snd.mChannelsPerFrame != target.mChannelsPerFrame)
         return -1;
@@ -341,13 +344,20 @@ int ca_asbd_better(AudioStreamBasicDescription target,
         snd.mChannelsPerFrame == target.mChannelsPerFrame)
         return 1;
 
-    // can't decide better format based on channel number, just use highest
-    // sample rate
-    if (fst.mSampleRate > snd.mSampleRate)
-        return -1;
-    else
+    // At this point, channel count is the same: decide based on the sample
+    // rate. Take the asbd that has the same or closest sample rate while still
+    // being >= than the target sample rate (so that in the worst case we
+    // upsample but never downsample).
+    if (fst.mSampleRate < target.mSampleRate)
         return 1;
 
+    if (snd.mSampleRate < target.mSampleRate)
+        return -1;
+
+    if (fst.mSampleRate > target.mSampleRate)
+        return 1;
+    else
+        return -1;
 }
 
 OSStatus ca_property_listener(AudioObjectPropertySelector selector,
@@ -419,58 +429,47 @@ OSStatus ca_unlock_device(AudioDeviceID device, pid_t *pid) {
 }
 
 bool ca_change_format(struct ao *ao, AudioStreamID stream,
-                      AudioStreamBasicDescription change_format)
+                      AudioStreamBasicDescription new_format, int sel)
 {
     OSStatus err = noErr;
-    volatile int pfmt_changed, vfmt_changed = 0;
+    volatile int fmt_changed = 0;
     AudioStreamBasicDescription actual_format;
 
-    CA_GET(stream, CA_PFMT, &actual_format);
+    err = CA_GET(stream, sel, &actual_format);
+    if (!CHECK_CA_WARN("can't fetch format property")) {
+        return false;
+    }
 
-    if (ca_asbd_best(actual_format, change_format)) {
-        MP_VERBOSE(ao, "requested format matches current physical format\n");
+    if (ca_asbd_best(actual_format, new_format)) {
+        MP_VERBOSE(ao, "requested format matches current format\n");
+        return true;
+    } else {
+        ca_print_asbd(ao, "actual: ", &actual_format);
+        ca_print_asbd(ao, "new: ", &new_format);
         return true;
     }
 
-    ca_print_asbd(ao, "setting stream format:", &change_format);
-
-    err = ca_enable_stream_listener(stream, CA_VFMT, (void *)&vfmt_changed);
-    if (!CHECK_CA_WARN("can't add virtual format property listener")) {
+    err = ca_enable_stream_listener(stream, sel, (void *)&fmt_changed);
+    if (!CHECK_CA_WARN("can't add format property listener")) {
         return false;
     }
 
-    err = ca_enable_stream_listener(stream, CA_PFMT, (void *)&pfmt_changed);
-    if (!CHECK_CA_WARN("can't add physical format property listener")) {
-        return false;
-    }
-
-    err = CA_SET(stream, CA_VFMT, &change_format);
-    if (!CHECK_CA_WARN("error changing virtual format")) {
-        return false;
-    }
-
-    err = CA_SET(stream, CA_PFMT, &change_format);
-    if (!CHECK_CA_WARN("error changing physical format")) {
+    err = CA_SET(stream, sel, &new_format);
+    if (!CHECK_CA_WARN("error changing format")) {
         return false;
     }
 
     // Setting the format is an asynchronous operation. We need to make sure
     // the change actually took place before reporting back the current
     // format to mpv's filter chain.
-    for (int j = 0; !pfmt_changed || !vfmt_changed && j < 50; j++)
+    for (int j = 0; !fmt_changed && j < 50; j++)
         mp_sleep_us(10000);
 
-    if (!pfmt_changed || !vfmt_changed)
-        MP_WARN(ao, "reached timeout while polling for format changes. Will " \
-                    "default to using the current virtual format.\n");
+    if (!fmt_changed)
+        MP_WARN(ao, "reached timeout while polling for format changes\n");
 
-    err = ca_disable_stream_listener(stream, CA_PFMT, (void *)&pfmt_changed);
-    if (!CHECK_CA_WARN("can't remove virtual format property listene")) {
-        return false;
-    }
-
-    err = ca_disable_stream_listener(stream, CA_VFMT, (void *)&pfmt_changed);
-    if (!CHECK_CA_WARN("can't remove physical format property listene")) {
+    err = ca_disable_stream_listener(stream, sel, (void *)&fmt_changed);
+    if (!CHECK_CA_WARN("can't remove format property listener")) {
         return false;
     }
 
