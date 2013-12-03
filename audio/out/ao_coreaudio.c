@@ -393,7 +393,10 @@ static bool ca_change_formats(struct ao *ao, AudioStreamID stream,
                               AudioStreamBasicDescription asbd)
 {
     struct priv *p = ao->priv;
-    bool changed_pfmt, changed_vfmt;
+    bool changed_pfmt;
+
+    ca_print_asbd(ao, "setting virtual stream format:", &asbd);
+    ca_change_format_sync(ao, stream, asbd, CA_VFMT);
 
     if (p->opt_bit_perfect) {
         ca_print_asbd(ao, "setting physical stream format:", &asbd);
@@ -402,9 +405,7 @@ static bool ca_change_formats(struct ao *ao, AudioStreamID stream,
         changed_pfmt = true;
     }
 
-    ca_print_asbd(ao, "setting virtual stream format:", &asbd);
-    changed_vfmt = ca_change_format(ao, stream, asbd, CA_VFMT);
-    return changed_pfmt && changed_vfmt;
+    return changed_pfmt;
 }
 
 static int init_exclusive(struct ao *ao, AudioStreamBasicDescription asbd)

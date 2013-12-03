@@ -448,8 +448,10 @@ static OSStatus ca_change_mixing(struct ao *ao, AudioDeviceID device,
             return err;
         }
 
-        if (!writeable)
+        if (!writeable) {
+            MP_INFO(ao, "mixing property is *not* settable");
             return noErr;
+        }
 
         err = CA_SET(device, kAudioDevicePropertySupportsMixing, &val);
         if (err != noErr)
@@ -478,6 +480,13 @@ OSStatus ca_enable_mixing(struct ao *ao, AudioDeviceID device, bool changed) {
     return noErr;
 }
 
+bool ca_change_format_sync(struct ao *ao, AudioStreamID stream,
+                           AudioStreamBasicDescription new_format, int sel)
+{
+    OSStatus err = CA_SET(stream, sel, &new_format);
+    return CHECK_CA_WARN("error changing format");
+}
+
 bool ca_change_format(struct ao *ao, AudioStreamID stream,
                       AudioStreamBasicDescription new_format, int sel)
 {
@@ -491,11 +500,7 @@ bool ca_change_format(struct ao *ao, AudioStreamID stream,
     }
 
     if (ca_asbd_best(actual_format, new_format)) {
-        MP_VERBOSE(ao, "requested format matches current format\n");
-        return true;
-    } else {
-        ca_print_asbd(ao, "actual: ", &actual_format);
-        ca_print_asbd(ao, "new: ", &new_format);
+        MP_ERR(ao, "requested format matches current format\n");
         return true;
     }
 

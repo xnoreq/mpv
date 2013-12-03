@@ -97,6 +97,9 @@ OSStatus ca_disable_stream_listener(AudioDeviceID device, int sel, void *flag);
 bool ca_change_format(struct ao *ao, AudioStreamID stream,
                       AudioStreamBasicDescription change_format, int sel);
 
+bool ca_change_format_sync(struct ao *ao, AudioStreamID stream,
+                           AudioStreamBasicDescription change_format, int sel);
+
 void ca_bitmaps_from_layouts(struct ao *ao,
                              AudioChannelLayout *layouts, size_t n_layouts,
                              uint32_t **bitmaps, size_t *n_bitmaps);
