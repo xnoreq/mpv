@@ -1,4 +1,5 @@
 from waflib.Options import OptionsContext
+import optparse
 
 class Feature(object):
     def __init__(self, group, feature):
@@ -43,6 +44,10 @@ class Feature(object):
         return "--{0}-{1}".format(state, self.identifier)
 
     def help(self, state):
+        if self.behaviour() == "autodetect" and \
+           state == "enable" or \
+           self.behaviour() == state:
+            return optparse.SUPPRESS_HELP
         return "{0} {1} [{2}]" \
             .format(state, self.attributes['desc'], self.behaviour())
 
