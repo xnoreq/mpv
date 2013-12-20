@@ -313,6 +313,7 @@ typedef struct MPContext {
      */
     struct ass_renderer *ass_renderer;
     struct ass_library *ass_library;
+    struct mp_log *ass_log;
 
     int last_dvb_step;
 
@@ -386,7 +387,7 @@ void mp_set_playlist_entry(struct MPContext *mpctx, struct playlist_entry *e);
 void mp_play_files(struct MPContext *mpctx);
 
 // main.c
-void mp_print_version(int always);
+void mp_print_version(struct mp_log *log, int always);
 
 // misc.c
 double get_start_time(struct MPContext *mpctx);

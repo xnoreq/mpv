@@ -283,7 +283,8 @@ int mp_sws_scale(struct mp_sws_context *ctx, struct mp_image *dst,
 
     int r = mp_sws_reinit(ctx);
     if (r < 0) {
-        mp_msg(MSGT_VFILTER, MSGL_ERR, "libswscale initialization failed.\n");
+        if (ctx->log)
+            MP_ERR(ctx, "libswscale initialization failed.\n");
         return r;
     }
 

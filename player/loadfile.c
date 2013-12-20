@@ -220,30 +220,30 @@ static void print_stream(struct MPContext *mpctx, struct track *t)
     if (!iid)
         return;
     int id = t->user_tid;
-    mp_msg(MSGT_IDENTIFY, MSGL_INFO, "ID_%s_ID=%d\n", iid, id);
+    MP_SMODE(mpctx, "ID_%s_ID=%d\n", iid, id);
     if (t->title)
-        mp_msg(MSGT_IDENTIFY, MSGL_INFO, "ID_%s_%d_NAME=%s\n", iid, id, t->title);
+        MP_SMODE(mpctx, "ID_%s_%d_NAME=%s\n", iid, id, t->title);
     if (t->lang)
-        mp_msg(MSGT_IDENTIFY, MSGL_INFO, "ID_%s_%d_LANG=%s\n", iid, id, t->lang);
+        MP_SMODE(mpctx, "ID_%s_%d_LANG=%s\n", iid, id, t->lang);
 }
 
 static void print_file_properties(struct MPContext *mpctx)
 {
-    mp_msg(MSGT_IDENTIFY, MSGL_INFO, "ID_FILENAME=%s\n", mpctx->filename);
-    mp_msg(MSGT_IDENTIFY, MSGL_INFO,
+    MP_SMODE(mpctx, "ID_FILENAME=%s\n", mpctx->filename);
+    MP_SMODE(mpctx,
            "ID_LENGTH=%.2f\n", get_time_length(mpctx));
     int chapter_count = get_chapter_count(mpctx);
     if (chapter_count >= 0) {
-        mp_msg(MSGT_IDENTIFY, MSGL_INFO, "ID_CHAPTERS=%d\n", chapter_count);
+        MP_SMODE(mpctx, "ID_CHAPTERS=%d\n", chapter_count);
         for (int i = 0; i < chapter_count; i++) {
-            mp_msg(MSGT_IDENTIFY, MSGL_INFO, "ID_CHAPTER_ID=%d\n", i);
+            MP_SMODE(mpctx, "ID_CHAPTER_ID=%d\n", i);
             // print in milliseconds
             double time = chapter_start_time(mpctx, i) * 1000.0;
-            mp_msg(MSGT_IDENTIFY, MSGL_INFO, "ID_CHAPTER_%d_START=%"PRId64"\n",
+            MP_SMODE(mpctx, "ID_CHAPTER_%d_START=%"PRId64"\n",
                    i, (int64_t)(time < 0 ? -1 : time));
             char *name = chapter_name(mpctx, i);
             if (name) {
-                mp_msg(MSGT_IDENTIFY, MSGL_INFO, "ID_CHAPTER_%d_NAME=%s\n", i,
+                MP_SMODE(mpctx, "ID_CHAPTER_%d_NAME=%s\n", i,
                        name);
                 talloc_free(name);
             }
@@ -693,7 +693,7 @@ static void open_subtitles_from_options(struct MPContext *mpctx)
         if (stream_control(mpctx->stream, STREAM_CTRL_GET_BASE_FILENAME,
                            &stream_filename) > 0)
             base_filename = talloc_steal(tmp, stream_filename);
-        struct subfn *list = find_text_subtitles(mpctx->opts, base_filename);
+        struct subfn *list = find_text_subtitles(mpctx->global, base_filename);
         talloc_steal(tmp, list);
         for (int i = 0; list && list[i].fname; i++) {
             char *filename = list[i].fname;
@@ -724,7 +724,7 @@ static struct track *open_external_file(struct MPContext *mpctx, char *filename,
     char *disp_filename = filename;
     if (strncmp(disp_filename, "memory://", 9) == 0)
         disp_filename = "memory://"; // avoid noise
-    struct stream *stream = stream_open(filename, mpctx->opts);
+    struct stream *stream = stream_open(filename, mpctx->global);
     if (!stream)
         goto err_out;
     stream_enable_cache_percent(&stream, stream_cache,
@@ -735,7 +735,7 @@ static struct track *open_external_file(struct MPContext *mpctx, char *filename,
         .ass_library = mpctx->ass_library, // demux_libass requires it
     };
     struct demuxer *demuxer =
-        demux_open(stream, demuxer_name, &params, mpctx->opts);
+        demux_open(stream, demuxer_name, &params, mpctx->global);
     if (!demuxer) {
         free_stream(stream);
         goto err_out;
@@ -842,8 +842,10 @@ static void init_sub_renderer(struct MPContext *mpctx)
     assert(!mpctx->ass_renderer);
 
     mpctx->ass_renderer = ass_renderer_init(mpctx->ass_library);
-    if (mpctx->ass_renderer)
-        mp_ass_configure_fonts(mpctx->ass_renderer, mpctx->opts->sub_text_style);
+    if (mpctx->ass_renderer) {
+        mp_ass_configure_fonts(mpctx->ass_renderer, mpctx->opts->sub_text_style,
+                               mpctx->ass_log);
+    }
     mpctx->initialized_flags |= INITIALIZED_LIBASS;
 #endif
 }
@@ -1044,7 +1046,7 @@ static void play_current_file(struct MPContext *mpctx)
         }
         stream_filename = mpctx->resolve_result->url;
     }
-    mpctx->stream = stream_open(stream_filename, opts);
+    mpctx->stream = stream_open(stream_filename, mpctx->global);
     if (!mpctx->stream) { // error...
         demux_was_interrupted(mpctx);
         goto terminate_playback;
@@ -1081,7 +1083,8 @@ goto_reopen_demuxer: ;
 
     mpctx->audio_delay = opts->audio_delay;
 
-    mpctx->demuxer = demux_open(mpctx->stream, opts->demuxer_name, NULL, opts);
+    mpctx->demuxer = demux_open(mpctx->stream, opts->demuxer_name, NULL,
+                                mpctx->global);
     mpctx->master_demuxer = mpctx->demuxer;
     if (!mpctx->demuxer) {
         MP_ERR(mpctx, "Failed to recognize file format.\n");

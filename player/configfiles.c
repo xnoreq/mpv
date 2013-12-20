@@ -95,8 +95,7 @@ void mp_load_per_protocol_config(m_config_t *conf, const char * const file)
     protocol[strlen(PROFILE_CFG_PROTOCOL) + strlen(file) - strlen(str)] = '\0';
     p = m_config_get_profile0(conf, protocol);
     if (p) {
-        mp_msg(MSGT_CPLAYER, MSGL_INFO,
-                "Loading protocol-related profile '%s'\n", protocol);
+        MP_INFO(conf, "Loading protocol-related profile '%s'\n", protocol);
         m_config_set_profile(conf, p, FILE_LOCAL_FLAGS);
     }
 }
@@ -118,8 +117,7 @@ void mp_load_per_extension_config(m_config_t *conf, const char * const file)
     strncat(extension, ++str, 7);
     p = m_config_get_profile0(conf, extension);
     if (p) {
-        mp_msg(MSGT_CPLAYER, MSGL_INFO,
-                "Loading extension-related profile '%s'\n", extension);
+        MP_INFO(conf, "Loading extension-related profile '%s'\n", extension);
         m_config_set_profile(conf, p, FILE_LOCAL_FLAGS);
     }
 }
@@ -135,8 +133,7 @@ void mp_load_per_output_config(m_config_t *conf, char *cfg, char *out)
     sprintf(profile, "%s%s", cfg, out);
     p = m_config_get_profile0(conf, profile);
     if (p) {
-        mp_msg(MSGT_CPLAYER, MSGL_INFO,
-                "Loading extension-related profile '%s'\n", profile);
+        MP_INFO(conf, "Loading extension-related profile '%s'\n", profile);
         m_config_set_profile(conf, p, FILE_LOCAL_FLAGS);
     }
 }
@@ -149,7 +146,7 @@ static int try_load_config(m_config_t *conf, const char *file, int flags)
 {
     if (!mp_path_exists(file))
         return 0;
-    mp_msg(MSGT_CPLAYER, MSGL_INFO, "Loading config '%s'\n", file);
+    MP_INFO(conf, "Loading config '%s'\n", file);
     m_config_parse_config_file(conf, file, flags);
     return 1;
 }
@@ -162,7 +159,7 @@ void mp_load_per_file_config(m_config_t *conf, const char * const file,
     const char *name;
 
     if (strlen(file) > MP_PATH_MAX - 14) {
-        mp_msg(MSGT_CPLAYER, MSGL_WARN, "Filename is too long, "
+        MP_WARN(conf, "Filename is too long, "
                "can not load file or directory specific config files\n");
         return;
     }
@@ -324,7 +321,7 @@ void mp_load_playback_resume(m_config_t *conf, const char *file)
     if (fname && mp_path_exists(fname)) {
         // Never apply the saved start position to following files
         m_config_backup_opt(conf, "start");
-        mp_msg(MSGT_CPLAYER, MSGL_INFO, "Resuming playback. This behavior can "
+        MP_INFO(conf, "Resuming playback. This behavior can "
                "be disabled with --no-resume-playback.\n");
         try_load_config(conf, fname, M_SETOPT_PRESERVE_CMDLINE);
         unlink(fname);

@@ -64,10 +64,10 @@ extern int sws_flags;
 
 extern const char mp_help_text[];
 
-static int print_version_opt(const m_option_t *opt, const char *name,
-                             const char *param)
+static int print_version_opt(struct mp_log *log, const m_option_t *opt,
+                             const char *name, const char *param)
 {
-    mp_print_version(true);
+    mp_print_version(log, true);
     return M_OPT_EXIT;
 }
 
@@ -573,10 +573,6 @@ const m_option_t mp_opts[] = {
 
     OPT_STRING("stream-capture", stream_capture, 0),
     OPT_STRING("stream-dump", stream_dump, 0),
-
-#if HAVE_LIRC
-    {"lircconf", &lirc_configfile, CONF_TYPE_STRING, CONF_GLOBAL, 0, 0, NULL},
-#endif
 
     OPT_CHOICE_OR_INT("loop", loop_times, M_OPT_GLOBAL, 2, 10000,
                       ({"no", -1}, {"1", -1},
