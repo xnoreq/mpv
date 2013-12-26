@@ -375,15 +375,6 @@ Libav libraries ({0}). Aborting.".format(" ".join(libav_pkg_config_checks))
 
 audio_output_features = [
     {
-        'name': '--sdl2',
-        'desc': 'SDL2',
-        'func': check_pkg_config('sdl2')
-    }, {
-        'name': '--sdl',
-        'desc': 'SDL (1.x)',
-        'deps_neg': [ 'sdl2' ],
-        'func': check_pkg_config('sdl')
-    }, {
         'name': 'oss-audio-4front',
         'desc': 'OSS (implementation from opensound.com)',
         'func': check_oss_4front,
@@ -610,6 +601,10 @@ video_output_features = [
         'desc': 'Direct3D support',
         'deps': [ 'gdi' ],
         'func': check_cc(header_name='d3d9.h'),
+    }, {
+        'name': '--sdl2',
+        'desc': 'SDL (2.0+) audio and video output',
+        'func': check_pkg_config('sdl2')
     }
 ]
 
