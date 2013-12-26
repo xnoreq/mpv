@@ -604,7 +604,8 @@ video_output_features = [
     }, {
         'name': '--sdl2',
         'desc': 'SDL (2.0+) audio and video output',
-        'func': check_pkg_config('sdl2')
+        'func': check_pkg_config('sdl2'),
+        'default': 'disable'
     }
 ]
 
