@@ -1217,6 +1217,10 @@ void vo_x11_config_vo_window(struct vo *vo, XVisualInfo *vis, int x, int y,
         x11->nofs_y = y;
         x11->nofs_width = width;
         x11->nofs_height = height;
+        if (opts->fullscreen) {
+            vo_x11_ewmh_fullscreen(x11, _NET_WM_STATE_ADD);
+            XSync(x11->display, False);
+        }
         vo_x11_map_window(vo, x, y, width, height);
     } else if (reset_size) {
         vo_x11_highlevel_resize(vo, x, y, width, height);
@@ -1225,7 +1229,7 @@ void vo_x11_config_vo_window(struct vo *vo, XVisualInfo *vis, int x, int y,
     if (opts->ontop)
         vo_x11_setlayer(vo, x11->window, opts->ontop);
 
-    vo_x11_fullscreen(vo);
+    //vo_x11_fullscreen(vo);
 
     XSync(x11->display, False);
 
