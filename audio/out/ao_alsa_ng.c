@@ -92,9 +92,12 @@ static int init(struct ao *ao)
     ALSA("format setup failed",
          snd_pcm_hw_params_set_format(p->pcm, hwparams, p->format));
 
+    struct mp_chmap oldmap = ao->channels;
+    int invalid_map = 0;
     if (!query_chmaps(ao)) {
-        MP_ERR(ao, "querying channel maps failed\n");
-        goto bail;
+        MP_WARN(ao, "did not get a valid channel map from ALSA\n");
+        ao->channels = oldmap;
+        invalid_map = 1;
     }
 
     ALSA("channel count setup failed",
@@ -107,18 +110,19 @@ static int init(struct ao *ao)
     ALSA("unable to set hardware parameters",
          snd_pcm_hw_params(p->pcm, hwparams));
 
+    if (!invalid_map) {
+        snd_pcm_chmap_t *alsa_chmap = snd_pcm_get_chmap(p->pcm);
+        for (int c = 0; c < ao->channels.num; c++) {
+            alsa_chmap->pos[c] = find_alsa_channel(ao->channels.speaker[c]);
+        }
 
-    snd_pcm_chmap_t *alsa_chmap = snd_pcm_get_chmap(p->pcm);
-    for (int c = 0; c < ao->channels.num; c++) {
-        alsa_chmap->pos[c] = find_alsa_channel(ao->channels.speaker[c]);
-    }
+        err = snd_pcm_set_chmap(p->pcm, alsa_chmap);
 
-    err = snd_pcm_set_chmap(p->pcm, alsa_chmap);
-
-    if (err == -ENXIO) {
-        MP_WARN(ao, "setting channel map not supported, hoping for the best\n");
-    } else {
-        ALSA("channel map setup failed", err);
+        if (err == -ENXIO) {
+            MP_WARN(ao, "setting channel map not supported, hoping for the best\n");
+        } else {
+            ALSA("channel map setup failed", err);
+        }
     }
 
     ALSA("unable to get buffer size",
