@@ -98,6 +98,9 @@ static int init(struct ao *ao)
         MP_WARN(ao, "did not get a valid channel map from ALSA\n");
         ao->channels = oldmap;
         invalid_map = 1;
+    } else if (ao->channels.num != oldmap.num) {
+        MP_WARN(ao, "requested %i channels, got %i instead\n",
+                oldmap.num, ao->channels.num);
     }
 
     ALSA("channel count setup failed",
