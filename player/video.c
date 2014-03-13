@@ -427,6 +427,14 @@ double update_video(struct MPContext *mpctx, double endpts)
         vo_skip_frame(video_out);
         return 0;
     }
+    // vo cannot display frames fast enough, skip
+	if (mpctx->last_av_difference > 0.1) {
+		vo_skip_frame(video_out);
+		mpctx->video_next_pts = pts;
+		mpctx->video_pts = pts;
+		return 0;
+	}
+
     mpctx->hrseek_active = false;
     double last_pts = mpctx->video_next_pts;
     if (last_pts == MP_NOPTS_VALUE)

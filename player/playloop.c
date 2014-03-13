@@ -1008,7 +1008,9 @@ void run_playloop(struct MPContext *mpctx)
         if (!vo->frame_loaded && (!mpctx->paused || mpctx->restart_playback)) {
 
             double frame_time = update_video(mpctx, endpts);
-            if (frame_time < 0) {
+            if (frame_time == 0)
+				update_avsync(mpctx);
+            else if (frame_time < 0) {
                 if (!mpctx->playing_last_frame && mpctx->last_frame_duration > 0) {
                     mpctx->time_frame += mpctx->last_frame_duration;
                     mpctx->last_frame_duration = 0;
