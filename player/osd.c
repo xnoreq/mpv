@@ -218,8 +218,8 @@ void print_status(struct MPContext *mpctx)
 #endif
     {
         // VO stats
-        if (mpctx->d_video && mpctx->drop_frame_cnt)
-            saddf(&line, " Late: %d", mpctx->drop_frame_cnt);
+        if (mpctx->d_video && (mpctx->skip_frame_cnt || mpctx->drop_frame_cnt))
+            saddf(&line, " Drop: %d %d", mpctx->skip_frame_cnt, mpctx->drop_frame_cnt);
     }
 
     int cache = mp_get_cache_percent(mpctx);

@@ -1288,8 +1288,10 @@ goto_reopen_demuxer: ;
 
     MP_VERBOSE(mpctx, "Starting playback...\n");
 
+    mpctx->skip_frame_cnt = 0;
     mpctx->drop_frame_cnt = 0;
     mpctx->dropped_frames = 0;
+    mpctx->skipped_frames = 0;
     mpctx->max_frames = opts->play_frames;
 
     if (mpctx->max_frames == 0) {

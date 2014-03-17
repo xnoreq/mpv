@@ -197,12 +197,15 @@ static void seek_reset(struct MPContext *mpctx, bool reset_ao, bool reset_ac)
     mpctx->last_frame_duration = 0;
     mpctx->delay = 0;
     mpctx->time_frame = 0;
+    mpctx->avg_frame_time = 0;
     mpctx->restart_playback = true;
     mpctx->hrseek_active = false;
     mpctx->hrseek_framedrop = false;
     mpctx->total_avsync_change = 0;
+    mpctx->skip_frame_cnt = 0;
     mpctx->drop_frame_cnt = 0;
     mpctx->dropped_frames = 0;
+    mpctx->skipped_frames = 0;
     mpctx->playback_pts = MP_NOPTS_VALUE;
 
 #if HAVE_ENCODING
@@ -1008,9 +1011,7 @@ void run_playloop(struct MPContext *mpctx)
         if (!vo->frame_loaded && (!mpctx->paused || mpctx->restart_playback)) {
 
             double frame_time = update_video(mpctx, endpts);
-            if (frame_time == 0)
-				update_avsync(mpctx);
-            else if (frame_time < 0) {
+			if (frame_time < 0) {
                 if (!mpctx->playing_last_frame && mpctx->last_frame_duration > 0) {
                     mpctx->time_frame += mpctx->last_frame_duration;
                     mpctx->last_frame_duration = 0;
@@ -1181,7 +1182,6 @@ void run_playloop(struct MPContext *mpctx)
             mpctx->time_frame = 0;
             get_relative_time(mpctx);
         }
-        update_avsync(mpctx);
         screenshot_flip(mpctx);
         new_frame_shown = true;
 
@@ -1189,6 +1189,8 @@ void run_playloop(struct MPContext *mpctx)
 
         break;
     } // video
+
+    update_avsync(mpctx);
 
     if (!video_left || mpctx->paused) {
         if (mp_time_sec() - mpctx->last_idle_tick > 0.5) {

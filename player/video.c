@@ -289,7 +289,7 @@ static void init_filter_params(struct MPContext *mpctx)
 }
 
 static void filter_video(struct MPContext *mpctx, struct mp_image *frame,
-                         bool reconfig_ok)
+                         bool reconfig_ok, bool skip_filter)
 {
     struct dec_video *d_video = mpctx->d_video;
 
@@ -315,9 +315,11 @@ static void filter_video(struct MPContext *mpctx, struct mp_image *frame,
         return;
     }
 
+	// TODO: only do CPU intense filtering if !skip_filter
+
     mp_image_set_params(frame, &d_video->vf_input); // force csp/aspect overrides
-    vf_filter_frame(d_video->vfilter, frame);
-    filter_output_queued_frame(mpctx);
+	vf_filter_frame(d_video->vfilter, frame);
+	filter_output_queued_frame(mpctx);
 }
 
 // Reconfigure the video chain and the VO on a format change. This is separate,
@@ -331,34 +333,7 @@ void video_execute_format_change(struct MPContext *mpctx)
     struct mp_image *decoded_frame = d_video->waiting_decoded_mpi;
     d_video->waiting_decoded_mpi = NULL;
     if (decoded_frame)
-        filter_video(mpctx, decoded_frame, true);
-}
-
-static int check_framedrop(struct MPContext *mpctx, double frame_time)
-{
-    struct MPOpts *opts = mpctx->opts;
-    struct track *t_audio = mpctx->current_track[0][STREAM_AUDIO];
-    struct sh_stream *sh_audio = t_audio ? t_audio->stream : NULL;
-    // check for frame-drop:
-    if (mpctx->d_audio && !ao_untimed(mpctx->ao) && sh_audio &&
-        !demux_stream_eof(sh_audio))
-    {
-        float delay = opts->playback_speed * ao_get_delay(mpctx->ao);
-        float d = delay - mpctx->delay;
-        float fps = mpctx->d_video->fps;
-        if (frame_time < 0)
-            frame_time = fps > 0 ? 1.0 / fps : 0;
-        // we should avoid dropping too many frames in sequence unless we
-        // are too late. and we allow 100ms A-V delay here:
-        if (d < -mpctx->dropped_frames * frame_time - 0.100 && !mpctx->paused
-            && !mpctx->restart_playback) {
-            mpctx->drop_frame_cnt++;
-            mpctx->dropped_frames++;
-            return mpctx->opts->frame_dropping;
-        } else
-            mpctx->dropped_frames = 0;
-    }
-    return 0;
+        filter_video(mpctx, decoded_frame, true, true);
 }
 
 static double update_video_attached_pic(struct MPContext *mpctx)
@@ -372,7 +347,7 @@ static double update_video_attached_pic(struct MPContext *mpctx)
     struct mp_image *decoded_frame =
             video_decode(d_video, d_video->header->attached_picture, 0);
     if (decoded_frame)
-        filter_video(mpctx, decoded_frame, true);
+        filter_video(mpctx, decoded_frame, true, true);
     load_next_vo_frame(mpctx, true);
     mpctx->video_next_pts = MP_NOPTS_VALUE;
     return 0;
@@ -382,6 +357,12 @@ double update_video(struct MPContext *mpctx, double endpts)
 {
     struct dec_video *d_video = mpctx->d_video;
     struct vo *video_out = mpctx->video_out;
+    struct MPOpts *opts = mpctx->opts;
+    
+    // skip frame if video lag exceeds the average time of a frame
+	int do_skip_frame = (mpctx->avg_frame_time > 0 &&
+			mpctx->last_av_difference > mpctx->avg_frame_time &&
+			!mpctx->paused && !mpctx->restart_playback);
 
     if (d_video->header->attached_picture)
         return update_video_attached_pic(mpctx);
@@ -402,13 +383,25 @@ double update_video(struct MPContext *mpctx, double endpts)
         {
             mpctx->hrseek_framedrop = false;
         }
-        int framedrop_type = mpctx->hrseek_active && mpctx->hrseek_framedrop ?
-                             1 : check_framedrop(mpctx, -1);
+        
+        int framedrop_type = opts->frame_dropping;
+        if (mpctx->hrseek_active && mpctx->hrseek_framedrop)
+			framedrop_type = 1;
+		else if (framedrop_type && do_skip_frame && mpctx->skipped_frames > 0 &&
+				 mpctx->last_av_difference > 2*mpctx->avg_frame_time)) {
+			// drop frames if we intend to skip this frame, we've already
+			// skipped frames previously and the video lag is even greater
+			mpctx->dropped_frames++;
+			mpctx->drop_frame_cnt++;
+			mpctx->skipped_frames = 0;
+		} else
+			framedrop_type = 0;
+			
         struct mp_image *decoded_frame =
             video_decode(d_video, pkt, framedrop_type);
         talloc_free(pkt);
         if (decoded_frame) {
-            filter_video(mpctx, decoded_frame, false);
+            filter_video(mpctx, decoded_frame, false, do_skip_frame);
         } else if (!pkt) {
             if (!load_next_vo_frame(mpctx, true))
                 return -1;
@@ -427,13 +420,6 @@ double update_video(struct MPContext *mpctx, double endpts)
         vo_skip_frame(video_out);
         return 0;
     }
-    // vo cannot display frames fast enough, skip
-	if (mpctx->last_av_difference > 0.1) {
-		vo_skip_frame(video_out);
-		mpctx->video_next_pts = pts;
-		mpctx->video_pts = pts;
-		return 0;
-	}
 
     mpctx->hrseek_active = false;
     double last_pts = mpctx->video_next_pts;
@@ -445,7 +431,31 @@ double update_video(struct MPContext *mpctx, double endpts)
         MP_WARN(mpctx, "Jump in video pts: %f -> %f\n", last_pts, pts);
         frame_time = 0;
     }
+    // update frame time
+	if (mpctx->avg_frame_time == 0)
+		mpctx->avg_frame_time = frame_time / opts->playback_speed;
+	else
+		mpctx->avg_frame_time = 9.0/10.0 * mpctx->avg_frame_time +
+				1.0/10.0 * frame_time / opts->playback_speed;
+
     mpctx->video_next_pts = pts;
+
+	// skip up to a few consecutive frames
+    if (do_skip_frame && mpctx->skipped_frames <= 7) {
+		vo_skip_frame(video_out);
+		mpctx->skip_frame_cnt++;
+		mpctx->skipped_frames++;
+		mpctx->time_frame = 0;
+		mpctx->video_pts = mpctx->video_next_pts;
+		mpctx->last_vo_pts = mpctx->video_pts;
+		mpctx->playback_pts = mpctx->video_pts;
+		return 0;
+    }
+    else if (do_skip_frame)
+		mpctx->skipped_frames = 1;
+    else
+		mpctx->skipped_frames = 0;
+
     if (mpctx->d_audio)
         mpctx->delay -= frame_time;
     return frame_time;
