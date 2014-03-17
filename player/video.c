@@ -388,7 +388,7 @@ double update_video(struct MPContext *mpctx, double endpts)
         if (mpctx->hrseek_active && mpctx->hrseek_framedrop)
 			framedrop_type = 1;
 		else if (framedrop_type && do_skip_frame && mpctx->skipped_frames > 0 &&
-				 mpctx->last_av_difference > 2*mpctx->avg_frame_time)) {
+				 mpctx->last_av_difference > 2*mpctx->avg_frame_time) {
 			// drop frames if we intend to skip this frame, we've already
 			// skipped frames previously and the video lag is even greater
 			mpctx->dropped_frames++;
@@ -431,14 +431,10 @@ double update_video(struct MPContext *mpctx, double endpts)
         MP_WARN(mpctx, "Jump in video pts: %f -> %f\n", last_pts, pts);
         frame_time = 0;
     }
-    // update frame time
-	if (mpctx->avg_frame_time == 0)
-		mpctx->avg_frame_time = frame_time / opts->playback_speed;
-	else
-		mpctx->avg_frame_time = 9.0/10.0 * mpctx->avg_frame_time +
-				1.0/10.0 * frame_time / opts->playback_speed;
-
     mpctx->video_next_pts = pts;
+    
+    // update frame time
+	mpctx->avg_frame_time = frame_time / opts->playback_speed;
 
 	// skip up to a few consecutive frames
     if (do_skip_frame && mpctx->skipped_frames <= 7) {

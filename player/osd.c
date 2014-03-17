@@ -204,6 +204,8 @@ void print_status(struct MPContext *mpctx)
             saddf(&line, " A-V: ???");
         if (fabs(mpctx->total_avsync_change) > 0.05)
             saddf(&line, " ct:%7.3f", mpctx->total_avsync_change);
+            
+        saddf(&line, " fps: %7.3f", 1.0/mpctx->avg_frame_time);
     }
 
 #if HAVE_ENCODING
