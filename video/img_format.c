@@ -114,19 +114,13 @@ struct mp_imgfmt_entry mp_imgfmt_list[] = {
     FMT_ENDIAN("gbrp14",        IMGFMT_GBRP14)
     FMT_ENDIAN("gbrp16",        IMGFMT_GBRP16)
     FMT_ENDIAN("xyz12",         IMGFMT_XYZ12)
-    FMT("vdpau_mpeg1",          IMGFMT_VDPAU_MPEG1)
-    FMT("vdpau_mpeg2",          IMGFMT_VDPAU_MPEG2)
-    FMT("vdpau_h264",           IMGFMT_VDPAU_H264)
-    FMT("vdpau_wmv3",           IMGFMT_VDPAU_WMV3)
-    FMT("vdpau_vc1",            IMGFMT_VDPAU_VC1)
-    FMT("vdpau_mpeg4",          IMGFMT_VDPAU_MPEG4)
     FMT("vdpau",                IMGFMT_VDPAU)
     FMT("vda",                  IMGFMT_VDA)
     FMT("vaapi",                IMGFMT_VAAPI)
     {0}
 };
 
-unsigned int mp_imgfmt_from_name(bstr name, bool allow_hwaccel)
+int mp_imgfmt_from_name(bstr name, bool allow_hwaccel)
 {
     int img_fmt = 0;
     for(struct mp_imgfmt_entry *p = mp_imgfmt_list; p->name; ++p) {
@@ -147,7 +141,7 @@ unsigned int mp_imgfmt_from_name(bstr name, bool allow_hwaccel)
     return img_fmt;
 }
 
-const char *mp_imgfmt_to_name(unsigned int fmt)
+const char *mp_imgfmt_to_name(int fmt)
 {
     struct mp_imgfmt_entry *p = mp_imgfmt_list;
     for(; p->name; ++p) {
@@ -211,13 +205,8 @@ struct mp_imgfmt_desc mp_imgfmt_get_desc(int mpfmt)
         desc.flags |= MP_IMGFLAG_RGB;
     }
 
-#ifdef AV_PIX_FMT_FLAG_ALPHA
     if (pd->flags & AV_PIX_FMT_FLAG_ALPHA)
         desc.flags |= MP_IMGFLAG_ALPHA;
-#else
-    if (desc.num_planes > 3)
-        desc.flags |= MP_IMGFLAG_ALPHA;
-#endif
 
     if (mpfmt >= IMGFMT_RGB0_START && mpfmt <= IMGFMT_RGB0_END)
         desc.flags &= ~MP_IMGFLAG_ALPHA;

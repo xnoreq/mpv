@@ -252,20 +252,8 @@ enum mp_imgfmt {
 
     // Hardware accelerated formats. Plane data points to special data
     // structures, instead of pixel data.
-
-    IMGFMT_VDPAU,               // new decoder API
-    IMGFMT_VDPAU_MPEG1,         // old API
-    IMGFMT_VDPAU_MPEG2,
-    IMGFMT_VDPAU_H264,
-    IMGFMT_VDPAU_WMV3,
-    IMGFMT_VDPAU_VC1,
-    IMGFMT_VDPAU_MPEG4,
-
-    IMGFMT_VDPAU_FIRST = IMGFMT_VDPAU,
-    IMGFMT_VDPAU_LAST  = IMGFMT_VDPAU_MPEG4,
-
+    IMGFMT_VDPAU,
     IMGFMT_VDA,
-
     IMGFMT_VAAPI,
 
 
@@ -333,7 +321,7 @@ enum mp_imgfmt {
     IMGFMT_XYZ12   = MP_SELECT_LE_BE(IMGFMT_XYZ12_LE, IMGFMT_XYZ12_BE),
 };
 
-static inline bool IMGFMT_IS_RGB(unsigned int fmt)
+static inline bool IMGFMT_IS_RGB(int fmt)
 {
     struct mp_imgfmt_desc desc = mp_imgfmt_get_desc(fmt);
     return (desc.flags & MP_IMGFLAG_RGB) && desc.num_planes == 1;
@@ -341,22 +329,19 @@ static inline bool IMGFMT_IS_RGB(unsigned int fmt)
 
 #define IMGFMT_RGB_DEPTH(fmt) (mp_imgfmt_get_desc(fmt).plane_bits)
 
-#define IMGFMT_IS_VDPAU(fmt) \
-    (((fmt) >= IMGFMT_VDPAU_FIRST) && ((fmt) <= IMGFMT_VDPAU_LAST))
-
 #define IMGFMT_IS_HWACCEL(fmt) \
-    (IMGFMT_IS_VDPAU(fmt) || ((fmt) == IMGFMT_VAAPI) || ((fmt) == IMGFMT_VDA))
+    ((fmt) == IMGFMT_VDPAU || (fmt) == IMGFMT_VAAPI || (fmt) == IMGFMT_VDA)
 
 
 struct mp_imgfmt_entry {
     const char *name;
-    unsigned int fmt;
+    int fmt;
 };
 
 extern struct mp_imgfmt_entry mp_imgfmt_list[];
 
-unsigned int mp_imgfmt_from_name(bstr name, bool allow_hwaccel);
-const char *mp_imgfmt_to_name(unsigned int fmt);
+int mp_imgfmt_from_name(bstr name, bool allow_hwaccel);
+const char *mp_imgfmt_to_name(int fmt);
 
 #define vo_format_name mp_imgfmt_to_name
 

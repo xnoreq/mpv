@@ -149,7 +149,7 @@ static void mp_image_alloc_planes(struct mp_image *mpi)
     }
 }
 
-void mp_image_setfmt(struct mp_image *mpi, unsigned int out_fmt)
+void mp_image_setfmt(struct mp_image *mpi, int out_fmt)
 {
     struct mp_imgfmt_desc fmt = mp_imgfmt_get_desc(out_fmt);
     mpi->fmt = fmt;
@@ -195,7 +195,7 @@ void mp_image_set_display_size(struct mp_image *mpi, int dw, int dh)
     mpi->display_h = dh;
 }
 
-struct mp_image *mp_image_alloc(unsigned int imgfmt, int w, int h)
+struct mp_image *mp_image_alloc(int imgfmt, int w, int h)
 {
     struct mp_image *mpi = talloc_zero(NULL, struct mp_image);
     talloc_set_destructor(mpi, mp_image_destructor);
@@ -600,8 +600,6 @@ void mp_image_copy_fields_to_av_frame(struct AVFrame *dst,
 #endif
 }
 
-#if HAVE_AVUTIL_REFCOUNTING
-
 static void frame_free(void *p)
 {
     AVFrame *frame = p;
@@ -659,5 +657,3 @@ struct AVFrame *mp_image_to_av_frame_and_unref(struct mp_image *img)
     talloc_free(new_ref);
     return frame;
 }
-
-#endif /* HAVE_AVUTIL_REFCOUNTING */

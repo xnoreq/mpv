@@ -436,6 +436,31 @@ static int mp_property_playtime_remaining(m_option_t *prop, int action,
     return property_time(prop, action, arg, remaining / speed);
 }
 
+/// Current BD/DVD title (RW)
+static int mp_property_disc_title(m_option_t *prop, int action, void *arg,
+                                 MPContext *mpctx)
+{
+    struct demuxer *demuxer = mpctx->master_demuxer;
+    if (!demuxer || !demuxer->stream)
+        return M_PROPERTY_UNAVAILABLE;
+    struct stream *stream = demuxer->stream;
+    unsigned int title = -1;
+    switch (action) {
+    case M_PROPERTY_GET:
+        if (stream_control(stream, STREAM_CTRL_GET_CURRENT_TITLE, &title) <= 0)
+            return M_PROPERTY_UNAVAILABLE;
+        *(int*)arg = title;
+        return M_PROPERTY_OK;
+    case M_PROPERTY_SET:
+        title = *(int*)arg;
+        if (stream_control(stream, STREAM_CTRL_SET_CURRENT_TITLE, &title) <= 0)
+            return M_PROPERTY_NOT_IMPLEMENTED;
+        return M_PROPERTY_OK;
+    default:
+        return M_PROPERTY_NOT_IMPLEMENTED;
+    }
+}
+
 /// Current chapter (RW)
 static int mp_property_chapter(m_option_t *prop, int action, void *arg,
                                MPContext *mpctx)
@@ -703,9 +728,9 @@ static int mp_property_quvi_format(m_option_t *prop, int action, void *arg,
     return mp_property_generic_option(prop, action, arg, mpctx);
 }
 
-/// Number of titles in file
-static int mp_property_titles(m_option_t *prop, int action, void *arg,
-                              MPContext *mpctx)
+/// Number of titles in BD/DVD
+static int mp_property_disc_titles(m_option_t *prop, int action, void *arg,
+                                   MPContext *mpctx)
 {
     struct demuxer *demuxer = mpctx->master_demuxer;
     unsigned int num_titles;
@@ -2099,11 +2124,12 @@ static const m_option_t mp_properties[] = {
       M_OPT_MIN, 0, 0, NULL },
     { "time-remaining", mp_property_remaining, CONF_TYPE_TIME },
     { "playtime-remaining", mp_property_playtime_remaining, CONF_TYPE_TIME },
+    { "disc-title", mp_property_disc_title, CONF_TYPE_INT, M_OPT_MIN, -1, 0, NULL },
     { "chapter", mp_property_chapter, CONF_TYPE_INT,
       M_OPT_MIN, -1, 0, NULL },
     M_OPTION_PROPERTY_CUSTOM("edition", mp_property_edition),
     M_OPTION_PROPERTY_CUSTOM("quvi-format", mp_property_quvi_format),
-    { "titles", mp_property_titles, CONF_TYPE_INT,
+    { "disc-titles", mp_property_disc_titles, CONF_TYPE_INT,
       0, 0, 0, NULL },
     { "chapters", mp_property_chapters, CONF_TYPE_INT,
       0, 0, 0, NULL },
@@ -3350,7 +3376,7 @@ void run_command(MPContext *mpctx, mp_cmd_t *cmd)
         break;
     }
 
-    case MP_CMD_SCRIPT_MESSAGE: {
+    case MP_CMD_SCRIPT_MESSAGE_TO: {
         mpv_event_client_message *event = talloc_ptrtype(NULL, event);
         *event = (mpv_event_client_message){0};
         for (int n = 1; n < cmd->nargs; n++) {
@@ -3363,6 +3389,14 @@ void run_command(MPContext *mpctx, mp_cmd_t *cmd)
             MP_VERBOSE(mpctx, "Can't find script '%s' for %s.\n",
                        cmd->args[0].v.s, cmd->name);
         }
+        break;
+    }
+    case MP_CMD_SCRIPT_MESSAGE: {
+        const char *args[MP_CMD_MAX_ARGS];
+        mpv_event_client_message event = {.args = args};
+        for (int n = 0; n < cmd->nargs; n++)
+            event.args[event.num_args++] = cmd->args[n].v.s;
+        mp_client_broadcast_event(mpctx, MPV_EVENT_CLIENT_MESSAGE, &event);
         break;
     }
 

@@ -115,12 +115,11 @@ SOURCES-$(PULSE)                += audio/out/ao_pulse.c
 SOURCES-$(PORTAUDIO)            += audio/out/ao_portaudio.c
 SOURCES-$(RSOUND)               += audio/out/ao_rsound.c
 SOURCES-$(SNDIO)                += audio/out/ao_sndio.c
-SOURCES-$(VDPAU)                += video/vdpau.c video/out/vo_vdpau.c
+SOURCES-$(VDPAU)                += video/vdpau.c video/out/vo_vdpau.c \
+                                   video/decode/vdpau.c
 SOURCES-$(VDPAU_GL_X11)         += video/out/gl_hwdec_vdpau.c
 SOURCES-$(VDA)                  += video/decode/vda.c
 SOURCES-$(VDA_GL)               += video/out/gl_hwdec_vda.c
-SOURCES-$(VDPAU_DEC)            += video/decode/vdpau.c
-SOURCES-$(VDPAU_DEC_OLD)        += video/decode/vdpau_old.c
 SOURCES-$(VAAPI)                += video/out/vo_vaapi.c \
                                    video/decode/vaapi.c \
                                    video/vaapi.c
@@ -131,14 +130,10 @@ SOURCES-$(X11)                  += video/out/vo_x11.c video/out/x11_common.c
 SOURCES-$(XV)                   += video/out/vo_xv.c
 SOURCES-$(WAYLAND)              += video/out/vo_wayland.c video/out/wayland_common.c
 
-SOURCES-$(VF_LAVFI)             += video/filter/vf_lavfi.c
-SOURCES-$(AF_LAVFI)             += audio/filter/af_lavfi.c
+SOURCES-$(LIBAVFILTER)          += video/filter/vf_lavfi.c \
+                                   audio/filter/af_lavfi.c
 
 SOURCES-$(LUA)                  += player/lua.c
-
-ifeq ($(HAVE_AVUTIL_REFCOUNTING),no)
-    SOURCES-yes                 += video/decode/lavc_dr1.c
-endif
 
 SOURCES-$(DLOPEN)               += video/filter/vf_dlopen.c
 
@@ -149,7 +144,6 @@ SOURCES = audio/audio.c \
           audio/fmt-conversion.c \
           audio/format.c \
           audio/mixer.c \
-          audio/reorder_ch.c \
           audio/decode/ad_lavc.c \
           audio/decode/ad_spdif.c      \
           audio/decode/dec_audio.c \
@@ -262,9 +256,7 @@ SOURCES = audio/audio.c \
           sub/sd_lavf_srt.c \
           sub/sd_microdvd.c \
           sub/sd_movtext.c \
-          sub/sd_spu.c \
           sub/sd_srt.c \
-          sub/spudec.c \
           ta/ta.c \
           ta/ta_utils.c \
           ta/ta_talloc.c \

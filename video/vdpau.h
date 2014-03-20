@@ -35,7 +35,7 @@ struct vdp_functions {
 // Shared state. Objects created from different VdpDevices are often (always?)
 // incompatible to each other, so all code must use a shared VdpDevice.
 struct mp_vdpau_ctx {
-    struct vdp_functions *vdp;
+    struct vdp_functions vdp;
     VdpGetProcAddress *get_proc_address;
     VdpDevice vdp_device;
     bool is_preempted;                  // set to true during unavailability
@@ -49,7 +49,7 @@ struct mp_vdpau_ctx {
     // Surface pool
     struct surface_entry {
         VdpVideoSurface surface;
-        int fmt, w, h;
+        int w, h;
         VdpChromaType chroma;
         bool in_use;
     } video_surfaces[MAX_VIDEO_SURFACES];
@@ -63,7 +63,7 @@ void mp_vdpau_destroy(struct mp_vdpau_ctx *ctx);
 
 bool mp_vdpau_status_ok(struct mp_vdpau_ctx *ctx);
 
-struct mp_image *mp_vdpau_get_video_surface(struct mp_vdpau_ctx *ctx, int fmt,
+struct mp_image *mp_vdpau_get_video_surface(struct mp_vdpau_ctx *ctx,
                                             VdpChromaType chroma, int w, int h);
 
 bool mp_vdpau_get_format(int imgfmt, VdpChromaType *out_chroma_type,

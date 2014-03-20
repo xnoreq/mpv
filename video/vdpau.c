@@ -86,7 +86,7 @@ static int win_x11_init_vdpau_procs(struct mp_vdpau_ctx *ctx)
         }
     }
 
-    *ctx->vdp = vdp;
+    ctx->vdp = vdp;
     ctx->get_proc_address = get_proc_address;
 
     vdp_st = vdp.preemption_callback_register(ctx->vdp_device,
@@ -140,26 +140,24 @@ static struct mp_image *create_ref(struct surface_entry *e)
     struct mp_image *res =
         mp_image_new_custom_ref(&(struct mp_image){0}, &e->in_use,
                                 release_decoder_surface);
-    mp_image_setfmt(res, e->fmt);
+    mp_image_setfmt(res, IMGFMT_VDPAU);
     mp_image_set_size(res, e->w, e->h);
     res->planes[0] = (void *)"dummy"; // must be non-NULL, otherwise arbitrary
     res->planes[3] = (void *)(intptr_t)e->surface;
     return res;
 }
 
-struct mp_image *mp_vdpau_get_video_surface(struct mp_vdpau_ctx *ctx, int fmt,
+struct mp_image *mp_vdpau_get_video_surface(struct mp_vdpau_ctx *ctx,
                                             VdpChromaType chroma, int w, int h)
 {
-    struct vdp_functions *vdp = ctx->vdp;
+    struct vdp_functions *vdp = &ctx->vdp;
     VdpStatus vdp_st;
-
-    assert(IMGFMT_IS_VDPAU(fmt));
 
     // Destroy all unused surfaces that don't have matching parameters
     for (int n = 0; n < MAX_VIDEO_SURFACES; n++) {
         struct surface_entry *e = &ctx->video_surfaces[n];
         if (!e->in_use && e->surface != VDP_INVALID_HANDLE) {
-            if (e->fmt != fmt || e->chroma != chroma || e->w != w || e->h != h) {
+            if (e->chroma != chroma || e->w != w || e->h != h) {
                 vdp_st = vdp->video_surface_destroy(e->surface);
                 CHECK_VDP_WARNING(ctx, "Error when calling vdp_video_surface_destroy");
                 e->surface = VDP_INVALID_HANDLE;
@@ -172,7 +170,7 @@ struct mp_image *mp_vdpau_get_video_surface(struct mp_vdpau_ctx *ctx, int fmt,
         struct surface_entry *e = &ctx->video_surfaces[n];
         if (!e->in_use && e->surface != VDP_INVALID_HANDLE) {
             assert(e->w == w && e->h == h);
-            assert(e->fmt == fmt && e->chroma == chroma);
+            assert(e->chroma == chroma);
             return create_ref(e);
         }
     }
@@ -182,7 +180,6 @@ struct mp_image *mp_vdpau_get_video_surface(struct mp_vdpau_ctx *ctx, int fmt,
         struct surface_entry *e = &ctx->video_surfaces[n];
         if (!e->in_use) {
             assert(e->surface == VDP_INVALID_HANDLE);
-            e->fmt = fmt;
             e->chroma = chroma;
             e->w = w;
             e->h = h;
@@ -208,14 +205,13 @@ struct mp_vdpau_ctx *mp_vdpau_create_device_x11(struct mp_log *log,
     *ctx = (struct mp_vdpau_ctx) {
         .log = log,
         .x11 = x11,
-        .vdp = talloc_zero(ctx, struct vdp_functions),
     };
 
     mark_vdpau_objects_uninitialized(ctx);
 
     if (win_x11_init_vdpau_procs(ctx) < 0) {
-        if (ctx->vdp->device_destroy)
-            ctx->vdp->device_destroy(ctx->vdp_device);
+        if (ctx->vdp.device_destroy)
+            ctx->vdp.device_destroy(ctx->vdp_device);
         talloc_free(ctx);
         return NULL;
     }
@@ -224,7 +220,7 @@ struct mp_vdpau_ctx *mp_vdpau_create_device_x11(struct mp_log *log,
 
 void mp_vdpau_destroy(struct mp_vdpau_ctx *ctx)
 {
-    struct vdp_functions *vdp = ctx->vdp;
+    struct vdp_functions *vdp = &ctx->vdp;
     VdpStatus vdp_st;
 
     for (int i = 0; i < MAX_VIDEO_SURFACES; i++) {
@@ -265,12 +261,6 @@ bool mp_vdpau_get_format(int imgfmt, VdpChromaType *out_chroma_type,
         ycbcr = VDP_YCBCR_FORMAT_UYVY;
         chroma = VDP_CHROMA_TYPE_422;
         break;
-    case IMGFMT_VDPAU_MPEG1:
-    case IMGFMT_VDPAU_MPEG2:
-    case IMGFMT_VDPAU_H264:
-    case IMGFMT_VDPAU_WMV3:
-    case IMGFMT_VDPAU_VC1:
-    case IMGFMT_VDPAU_MPEG4:
     case IMGFMT_VDPAU:
         break;
     default:

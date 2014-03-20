@@ -205,17 +205,14 @@ static int init(struct dec_audio *da, const char *decoder)
 
     lavc_context = avcodec_alloc_context3(lavc_codec);
     ctx->avctx = lavc_context;
-    ctx->avframe = avcodec_alloc_frame();
+    ctx->avframe = av_frame_alloc();
+    lavc_context->refcounted_frames = 1;
     lavc_context->codec_type = AVMEDIA_TYPE_AUDIO;
     lavc_context->codec_id = lavc_codec->id;
 
     if (opts->downmix) {
         lavc_context->request_channel_layout =
             mp_chmap_to_lavc(&mpopts->audio_output_channels);
-        // Compatibility for Libav 9
-        av_opt_set_int(lavc_context, "request_channels",
-                       mpopts->audio_output_channels.num,
-                       AV_OPT_SEARCH_CHILDREN);
     }
 
     // Always try to set - option only exists for AC3 at the moment
@@ -293,7 +290,7 @@ static void uninit(struct dec_audio *da)
         av_freep(&lavc_context->extradata);
         av_freep(&lavc_context);
     }
-    avcodec_free_frame(&ctx->avframe);
+    av_frame_free(&ctx->avframe);
 }
 
 static int control(struct dec_audio *da, int cmd, void *arg)
@@ -335,6 +332,7 @@ static int decode_new_packet(struct dec_audio *da)
     }
 
     int got_frame = 0;
+    av_frame_unref(priv->avframe);
     int ret = avcodec_decode_audio4(avctx, priv->avframe, &got_frame, &pkt);
     if (mpkt) {
         // At least "shorten" decodes sub-frames, instead of the whole packet.

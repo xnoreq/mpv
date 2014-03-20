@@ -1189,8 +1189,7 @@ static void draw_image(struct vo *vo, mp_image_t *mpi)
                               "output_surface_put_bits_native");
         }
     } else {
-        reserved_mpi = mp_vdpau_get_video_surface(vc->mpvdp, IMGFMT_VDPAU,
-                                                  vc->vdp_chroma_type,
+        reserved_mpi = mp_vdpau_get_video_surface(vc->mpvdp, vc->vdp_chroma_type,
                                                   mpi->w, mpi->h);
         if (!reserved_mpi)
             return;
@@ -1357,7 +1356,7 @@ static int preinit(struct vo *vo)
 
     vc->preemption_counter = vc->mpvdp->preemption_counter;
     vc->vdp_device = vc->mpvdp->vdp_device;
-    vc->vdp = vc->mpvdp->vdp;
+    vc->vdp = &vc->mpvdp->vdp;
 
     vc->colorspace = (struct mp_csp_details) MP_CSP_DETAILS_DEFAULTS;
     vc->video_eq.capabilities = MP_CSP_EQ_CAPS_COLORMATRIX;

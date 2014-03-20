@@ -39,12 +39,6 @@ struct priv {
     AVVDPAUContext              context;
 };
 
-struct profile_entry {
-    enum AVCodecID av_codec;
-    VdpDecoderProfile vdp_profile;
-    int maxrefs;
-};
-
 #define PE(av_codec_id, ff_profile, vdp_profile)                \
     {AV_CODEC_ID_ ## av_codec_id, FF_PROFILE_ ## ff_profile,    \
      VDP_DECODER_PROFILE_ ## vdp_profile}
@@ -89,7 +83,7 @@ static int handle_preemption(struct lavc_ctx *ctx)
     }
 
     p->vdp_device = p->mpvdp->vdp_device;
-    p->vdp = p->mpvdp->vdp;
+    p->vdp = &p->mpvdp->vdp;
 
     return 0;
 }
@@ -97,11 +91,11 @@ static int handle_preemption(struct lavc_ctx *ctx)
 static int init_decoder(struct lavc_ctx *ctx, int fmt, int w, int h)
 {
     struct priv *p = ctx->hwdec_priv;
-    struct vdp_functions *vdp = p->mpvdp->vdp;
+    struct vdp_functions *vdp = &p->mpvdp->vdp;
     VdpStatus vdp_st;
 
     if (handle_preemption(ctx) < 0)
-        return false;
+        return -1;
 
     if (p->context.decoder != VDP_INVALID_HANDLE)
         vdp->decoder_destroy(p->context.decoder);
@@ -135,11 +129,11 @@ static int init_decoder(struct lavc_ctx *ctx, int fmt, int w, int h)
     CHECK_VDP_WARNING(p, "Failed creating VDPAU decoder");
     if (vdp_st != VDP_STATUS_OK)
         goto fail;
-    return true;
+    return 0;
 
 fail:
     p->context.decoder = VDP_INVALID_HANDLE;
-    return false;
+    return -1;
 }
 
 static struct mp_image *allocate_image(struct lavc_ctx *ctx, int fmt,
@@ -152,7 +146,7 @@ static struct mp_image *allocate_image(struct lavc_ctx *ctx, int fmt,
     VdpChromaType chroma;
     mp_vdpau_get_format(IMGFMT_VDPAU, &chroma, NULL);
 
-    return mp_vdpau_get_video_surface(p->mpvdp, IMGFMT_VDPAU, chroma, w, h);
+    return mp_vdpau_get_video_surface(p->mpvdp, chroma, w, h);
 }
 
 static void uninit(struct lavc_ctx *ctx)
@@ -179,7 +173,7 @@ static int init(struct lavc_ctx *ctx)
     };
     ctx->hwdec_priv = p;
 
-    p->vdp = p->mpvdp->vdp;
+    p->vdp = &p->mpvdp->vdp;
     p->context.render = p->vdp->decoder_render;
 
     p->preemption_counter = p->mpvdp->preemption_counter;
@@ -206,7 +200,7 @@ static int probe(struct vd_lavc_hwdec *hwdec, struct mp_hwdec_info *info,
 
 const struct vd_lavc_hwdec mp_vd_lavc_vdpau = {
     .type = HWDEC_VDPAU,
-    .image_formats = (const int[]) {IMGFMT_VDPAU, 0},
+    .image_format = IMGFMT_VDPAU,
     .probe = probe,
     .init = init,
     .uninit = uninit,
