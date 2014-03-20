@@ -197,11 +197,10 @@ static void seek_reset(struct MPContext *mpctx, bool reset_ao, bool reset_ac)
     mpctx->last_frame_duration = 0;
     mpctx->delay = 0;
     mpctx->time_frame = 0;
-    mpctx->avg_frame_time = 0;
+    mpctx->last_frame_time = 0;
     mpctx->restart_playback = true;
     mpctx->hrseek_active = false;
     mpctx->hrseek_framedrop = false;
-    mpctx->total_avsync_change = 0;
     mpctx->skip_frame_cnt = 0;
     mpctx->drop_frame_cnt = 0;
     mpctx->dropped_frames = 0;
@@ -665,7 +664,6 @@ static void adjust_sync(struct MPContext *mpctx, double frame_time)
     else if (change > max_change)
         change = max_change;
     mpctx->delay += change;
-    mpctx->total_avsync_change += change;
 }
 
 static bool handle_osd_redraw(struct MPContext *mpctx)

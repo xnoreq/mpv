@@ -249,8 +249,8 @@ typedef struct MPContext {
     double delay;
     // AV sync: time until next frame should be shown
     double time_frame;
-    // average time of a frame
-    double avg_frame_time;
+    // time (pts difference) of the last frame
+    double last_frame_time;
     // How long the last vo flip() call took. Used to adjust timing with
     // the goal of making flip() calls finish (rather than start) at the
     // specified time.
@@ -260,9 +260,6 @@ typedef struct MPContext {
     // Set to true some time after a new frame has been shown, and it turns out
     // that this frame was the last one before video ends.
     bool playing_last_frame;
-    // How much video timing has been changed to make it match the audio
-    // timeline. Used for status line information only.
-    double total_avsync_change;
     // total number of skipped vo frames
     int skip_frame_cnt;
     // number of frames skipped in a row

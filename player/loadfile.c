@@ -1310,7 +1310,6 @@ goto_reopen_demuxer: ;
     mpctx->hrseek_framedrop = false;
     mpctx->step_frames = 0;
     mpctx->backstep_active = false;
-    mpctx->total_avsync_change = 0;
     mpctx->last_chapter_seek = -2;
     mpctx->playing_msg_shown = false;
     mpctx->paused = false;
