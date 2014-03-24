@@ -315,11 +315,11 @@ static void filter_video(struct MPContext *mpctx, struct mp_image *frame,
         return;
     }
 
-	// TODO: only do CPU intense filtering if !skip_filter
+    // TODO: only do CPU intense filtering if !skip_filter
 
     mp_image_set_params(frame, &d_video->vf_input); // force csp/aspect overrides
-	vf_filter_frame(d_video->vfilter, frame);
-	filter_output_queued_frame(mpctx);
+    vf_filter_frame(d_video->vfilter, frame);
+    filter_output_queued_frame(mpctx);
 }
 
 // Reconfigure the video chain and the VO on a format change. This is separate,
@@ -358,14 +358,14 @@ double update_video(struct MPContext *mpctx, double endpts)
     struct dec_video *d_video = mpctx->d_video;
     struct vo *video_out = mpctx->video_out;
     struct MPOpts *opts = mpctx->opts;
-    
+
     // how many frames we lag behind
-	int frames_lag = 0;
-	if (mpctx->last_frame_time > 0 && mpctx->last_av_difference > 0
-		&& !mpctx->paused && !mpctx->restart_playback) {
-		
-		frames_lag = (int)(mpctx->last_av_difference / mpctx->last_frame_time * opts->playback_speed);
-	}
+    int frames_lag = 0;
+    if (mpctx->last_frame_time > 0 && mpctx->last_av_difference > 0
+        && !mpctx->paused && !mpctx->restart_playback) {
+
+        frames_lag = (int)(mpctx->last_av_difference / mpctx->last_frame_time * opts->playback_speed);
+    }
 
     if (d_video->header->attached_picture)
         return update_video_attached_pic(mpctx);
@@ -386,32 +386,32 @@ double update_video(struct MPContext *mpctx, double endpts)
         {
             mpctx->hrseek_framedrop = false;
         }
-        
+
         int framedrop_type = 0;
         if (mpctx->hrseek_active && mpctx->hrseek_framedrop)
-			framedrop_type = 1;
-		else if (opts->frame_dropping && mpctx->dropped_frames >= 0
-				&& frames_lag > 1
-				&& mpctx->dropped_frames*(mpctx->last_frame_time/opts->playback_speed) < 1.0) {
-			// drop as long as we lag more than we can skip
-			// but ensure a minimum of 1.0 fps
-			framedrop_type = opts->frame_dropping;
-			mpctx->dropped_frames++;
-			mpctx->drop_frame_cnt++;
-			
-			// update pts so that we can update last_av_difference
-			mpctx->video_pts += mpctx->last_frame_time;
-			mpctx->last_vo_pts = mpctx->video_pts;
-			mpctx->playback_pts = mpctx->video_pts;
-		} else {
-			if (mpctx->dropped_frames > 0) {
-				// we are decoding a frame after dropping at least one
-				// so we need to make sure we don't continue skipping
-				mpctx->dropped_frames = -2;
-			}
-			framedrop_type = 0;
-		}
-		
+            framedrop_type = 1;
+        else if (opts->frame_dropping && mpctx->dropped_frames >= 0
+                && frames_lag > 1
+                && mpctx->dropped_frames*(mpctx->last_frame_time/opts->playback_speed) < 1.0) {
+            // drop as long as we lag more than we can skip
+            // but ensure a minimum of 1.0 fps
+            framedrop_type = opts->frame_dropping;
+            mpctx->dropped_frames++;
+            mpctx->drop_frame_cnt++;
+
+            // update pts so that we can update last_av_difference
+            mpctx->video_pts += mpctx->last_frame_time;
+            mpctx->last_vo_pts = mpctx->video_pts;
+            mpctx->playback_pts = mpctx->video_pts;
+        } else {
+            if (mpctx->dropped_frames > 0) {
+                // we are decoding a frame after dropping at least one
+                // so we need to make sure we don't continue skipping
+                mpctx->dropped_frames = -2;
+            }
+            framedrop_type = 0;
+        }
+
         struct mp_image *decoded_frame =
             video_decode(d_video, pkt, framedrop_type);
         talloc_free(pkt);
@@ -447,26 +447,26 @@ double update_video(struct MPContext *mpctx, double endpts)
         frame_time = 0;
     }
     mpctx->video_next_pts = pts;
-    
-    
-	if (mpctx->dropped_frames < 0)
-		mpctx->dropped_frames++;
+
+
+    if (mpctx->dropped_frames < 0)
+        mpctx->dropped_frames++;
     else {
-		mpctx->last_frame_time = frame_time;
-		
-		// skip as long as we lag but ensure a minimum of 20 fps
-		if (frames_lag && mpctx->skipped_frames*(mpctx->last_frame_time/opts->playback_speed) < 0.05) {
-			vo_skip_frame(video_out);
-			mpctx->skip_frame_cnt++;
-			mpctx->skipped_frames++;
-			
-			mpctx->video_pts = mpctx->video_next_pts;
-			mpctx->last_vo_pts = mpctx->video_pts;
-			mpctx->playback_pts = mpctx->video_pts;
-		} else
-			mpctx->skipped_frames = 0;
-	}
-		
+        mpctx->last_frame_time = frame_time;
+
+        // skip as long as we lag but ensure a minimum of 20 fps
+        if (frames_lag && mpctx->skipped_frames*(mpctx->last_frame_time/opts->playback_speed) < 0.05) {
+            vo_skip_frame(video_out);
+            mpctx->skip_frame_cnt++;
+            mpctx->skipped_frames++;
+
+            mpctx->video_pts = mpctx->video_next_pts;
+            mpctx->last_vo_pts = mpctx->video_pts;
+            mpctx->playback_pts = mpctx->video_pts;
+        } else
+            mpctx->skipped_frames = 0;
+    }
+
 
     if (mpctx->d_audio)
         mpctx->delay -= frame_time;

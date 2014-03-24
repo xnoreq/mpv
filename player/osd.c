@@ -202,7 +202,7 @@ void print_status(struct MPContext *mpctx)
             saddf(&line, " A-V:%7.3f", mpctx->last_av_difference);
         else
             saddf(&line, " A-V: ???");
-            
+
         saddf(&line, " fps: %7.3f", 1.0/mpctx->last_frame_time*opts->playback_speed);
     }
 
